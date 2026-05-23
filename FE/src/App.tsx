@@ -316,7 +316,7 @@ export function App() {
         <section className="hero-panel">
           <div>
             <p className="eyebrow">Lộ trình tự học MOS Word</p>
-            <h1>Học bằng checklist, sửa lỗi đúng lúc, luyện lại bằng flashcard.</h1>
+            <h1>Chung Khả Vy dễ thương.</h1>
             <div className="hero-actions">
               <a href="#lesson" className="primary-action">
                 Vào bài đang học
