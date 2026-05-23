@@ -2,7 +2,7 @@ import cors from "cors";
 import express from "express";
 import { z } from "zod";
 import { blueprints, questions, users } from "./seed.js";
-import { getAdminOverview, getStudentAnalytics, getStudentPersonalization } from "./services/analytics.js";
+import { getStudentAnalytics, getStudentPersonalization } from "./services/analytics.js";
 import {
   createExamBlueprint,
   createQuestion,
@@ -21,10 +21,6 @@ app.use(express.json());
 
 app.get("/health", (_request, response) => {
   response.json({ ok: true, service: "mos-word-education-api" });
-});
-
-app.get("/api/admin/overview", (_request, response) => {
-  response.json(getAdminOverview());
 });
 
 app.get("/api/users", (_request, response) => {

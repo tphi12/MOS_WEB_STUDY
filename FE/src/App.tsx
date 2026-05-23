@@ -10,6 +10,7 @@ import {
   LayoutList,
   Lightbulb,
   Menu,
+  Music,
   Search,
   Sparkles,
   Target,
@@ -70,6 +71,30 @@ const shortcutCategories: Array<Shortcut["category"] | "Tất cả"> = [
   "Nâng cao",
 ];
 
+const spotifyStations = [
+  {
+    id: "deep-focus",
+    label: "Deep Focus",
+    mood: "Nhạc nền tập trung",
+    embedUrl: "https://open.spotify.com/embed/playlist/37i9dQZF1DX8NTLI2TtZa6?utm_source=generator",
+    openUrl: "https://open.spotify.com/playlist/37i9dQZF1DX8NTLI2TtZa6",
+  },
+  {
+    id: "peaceful-piano",
+    label: "Peaceful Piano",
+    mood: "Nhẹ, ít lời",
+    embedUrl: "https://open.spotify.com/embed/playlist/37i9dQZF1DX4sWSpwq3LiO?utm_source=generator",
+    openUrl: "https://open.spotify.com/playlist/37i9dQZF1DX4sWSpwq3LiO",
+  },
+  {
+    id: "lofi-focus",
+    label: "Lofi Focus",
+    mood: "Làm quiz thư thái",
+    embedUrl: "https://open.spotify.com/embed/playlist/37i9dQZF1DX3PFzdbtx1Us?utm_source=generator",
+    openUrl: "https://open.spotify.com/playlist/37i9dQZF1DX3PFzdbtx1Us",
+  },
+];
+
 export function App() {
   const [activeLessonId, setActiveLessonId] = useState(lessons[0].id);
   const [query, setQuery] = useState("");
@@ -81,6 +106,7 @@ export function App() {
   const [shortcutCaptures, setShortcutCaptures] = useState<Record<string, string>>({});
   const [quizAnswers, setQuizAnswers] = useState<Record<string, string>>({});
   const [remotePlan, setRemotePlan] = useState<PersonalizedPlan | null>(null);
+  const [activeSpotifyId, setActiveSpotifyId] = useState(spotifyStations[0].id);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -104,6 +130,7 @@ export function App() {
   );
   const personalizedPlan = remotePlan ?? localPlan;
   const recommendedLesson = lessons.find((lesson) => lesson.id === personalizedPlan.recommendedLessonId) ?? activeLesson;
+  const activeSpotify = spotifyStations.find((station) => station.id === activeSpotifyId) ?? spotifyStations[0];
 
   const searchResults = useMemo<SearchResult[]>(() => {
     const normalized = query.trim().toLowerCase();
@@ -319,6 +346,41 @@ export function App() {
               <p className="muted">Chưa có dữ liệu yếu rõ ràng. Hệ thống sẽ cập nhật sau khi bạn làm quiz/test.</p>
             )}
           </div>
+        </section>
+
+        <section className="spotify-study-panel" aria-label="Spotify study music">
+          <div className="spotify-panel-head">
+            <div>
+              {/* <p className="eyebrow">Study music</p> */}
+              <h2>
+                <Music size={22} /> Nghe Spotify khi học
+              </h2>
+              {/* <p>Bật nhạc nền nhẹ để đọc lý thuyết, làm flashcard hoặc luyện quiz lâu hơn mà đỡ khô.</p> */}
+            </div>
+            <a href={activeSpotify.openUrl} target="_blank" rel="noreferrer">
+              Mở trên Spotify
+            </a>
+          </div>
+          <div className="spotify-tabs" role="tablist" aria-label="Chọn playlist Spotify">
+            {spotifyStations.map((station) => (
+              <button
+                key={station.id}
+                className={activeSpotify.id === station.id ? "active" : ""}
+                onClick={() => setActiveSpotifyId(station.id)}
+              >
+                <strong>{station.label}</strong>
+                <small>{station.mood}</small>
+              </button>
+            ))}
+          </div>
+          <iframe
+            title={`Spotify playlist ${activeSpotify.label}`}
+            src={activeSpotify.embedUrl}
+            width="100%"
+            height="152"
+            allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+            loading="lazy"
+          />
         </section>
 
         <div className="content-grid">

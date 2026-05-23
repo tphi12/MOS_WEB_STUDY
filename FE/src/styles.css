@@ -417,6 +417,86 @@ code {
   border-radius: 999px;
 }
 
+.spotify-study-panel {
+  display: grid;
+  gap: 14px;
+  margin: 18px 0;
+  padding: 18px;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+}
+
+.spotify-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.spotify-panel-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--text);
+  font-size: 24px;
+  line-height: 1.25;
+}
+
+.spotify-panel-head p {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
+.spotify-panel-head a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 14px;
+  white-space: nowrap;
+  color: #fff;
+  background: #1db954;
+  border-radius: 999px;
+  font-weight: 900;
+}
+
+.spotify-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.spotify-tabs button {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  text-align: left;
+  color: #28323d;
+  background: #f7fbff;
+  border: 1px solid #dbe5f6;
+  border-radius: 12px;
+}
+
+.spotify-tabs button.active {
+  color: #0f5132;
+  background: #e9f8ef;
+  border-color: #91d8aa;
+}
+
+.spotify-tabs small {
+  color: var(--text-muted);
+}
+
+.spotify-study-panel iframe {
+  display: block;
+  background: #f4f7fc;
+  border: 0;
+  border-radius: 12px;
+}
+
 .search-results {
   position: sticky;
   top: 68px;
@@ -1296,6 +1376,7 @@ h3 {
 
   .hero-panel,
   .personalized-panel,
+  .spotify-tabs,
   .content-grid,
   .lesson-header,
   .mos-theory-grid,
@@ -1338,6 +1419,14 @@ h3 {
 
   .hero-panel h1 {
     font-size: 34px;
+  }
+
+  .spotify-panel-head {
+    display: grid;
+  }
+
+  .spotify-panel-head a {
+    width: fit-content;
   }
 
   .lesson-content {
