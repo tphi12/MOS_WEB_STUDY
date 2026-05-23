@@ -243,7 +243,7 @@ code {
 .hero-panel h1 {
   max-width: 780px;
   margin: 8px 0 14px;
-  font-size: clamp(32px, 5vw, 58px);
+  font-size: clamp(30px, 5vw, 50px);
   line-height: 1.04;
   letter-spacing: -0.02em;
 }
@@ -488,6 +488,43 @@ code {
 
 .spotify-tabs small {
   color: var(--text-muted);
+}
+
+.spotify-custom-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.spotify-custom-form input {
+  min-height: 42px;
+  padding: 0 13px;
+  color: #28323d;
+  background: #fff;
+  border: 1px solid #c3c6d2;
+  border-radius: 999px;
+  outline: 0;
+}
+
+.spotify-custom-form input:focus {
+  border-color: #1db954;
+  box-shadow: 0 0 0 3px rgba(29, 185, 84, 0.12);
+}
+
+.spotify-custom-form button {
+  min-height: 42px;
+  padding: 0 14px;
+  color: #fff;
+  background: #191414;
+  border-radius: 999px;
+  font-weight: 900;
+}
+
+.spotify-error {
+  margin: -4px 0 0;
+  color: #93000a;
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .spotify-study-panel iframe {
@@ -1426,6 +1463,14 @@ h3 {
   }
 
   .spotify-panel-head a {
+    width: fit-content;
+  }
+
+  .spotify-custom-form {
+    grid-template-columns: 1fr;
+  }
+
+  .spotify-custom-form button {
     width: fit-content;
   }
 

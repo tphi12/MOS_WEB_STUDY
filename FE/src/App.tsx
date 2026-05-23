@@ -107,6 +107,9 @@ export function App() {
   const [quizAnswers, setQuizAnswers] = useState<Record<string, string>>({});
   const [remotePlan, setRemotePlan] = useState<PersonalizedPlan | null>(null);
   const [activeSpotifyId, setActiveSpotifyId] = useState(spotifyStations[0].id);
+  const [customSpotifyInput, setCustomSpotifyInput] = useState("");
+  const [customSpotifyStation, setCustomSpotifyStation] = useState<(typeof spotifyStations)[number] | null>(null);
+  const [customSpotifyError, setCustomSpotifyError] = useState("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -130,7 +133,8 @@ export function App() {
   );
   const personalizedPlan = remotePlan ?? localPlan;
   const recommendedLesson = lessons.find((lesson) => lesson.id === personalizedPlan.recommendedLessonId) ?? activeLesson;
-  const activeSpotify = spotifyStations.find((station) => station.id === activeSpotifyId) ?? spotifyStations[0];
+  const availableSpotifyStations = customSpotifyStation ? [customSpotifyStation, ...spotifyStations] : spotifyStations;
+  const activeSpotify = availableSpotifyStations.find((station) => station.id === activeSpotifyId) ?? availableSpotifyStations[0];
 
   const searchResults = useMemo<SearchResult[]>(() => {
     const normalized = query.trim().toLowerCase();
@@ -209,6 +213,25 @@ export function App() {
       return next;
     });
     setSequenceChecked((state) => ({ ...state, [questionKey]: false }));
+  }
+
+  function useCustomSpotifyPlaylist() {
+    const playlistId = extractSpotifyPlaylistId(customSpotifyInput);
+    if (!playlistId) {
+      setCustomSpotifyError("Dán link playlist Spotify dạng open.spotify.com/playlist/... hoặc spotify:playlist:...");
+      return;
+    }
+
+    const nextStation = {
+      id: "custom-playlist",
+      label: "Playlist của tôi",
+      mood: "Từ Spotify cá nhân",
+      embedUrl: `https://open.spotify.com/embed/playlist/${playlistId}?utm_source=generator`,
+      openUrl: `https://open.spotify.com/playlist/${playlistId}`,
+    };
+    setCustomSpotifyStation(nextStation);
+    setActiveSpotifyId(nextStation.id);
+    setCustomSpotifyError("");
   }
 
   return (
@@ -294,10 +317,6 @@ export function App() {
           <div>
             <p className="eyebrow">Lộ trình tự học MOS Word</p>
             <h1>Học bằng checklist, sửa lỗi đúng lúc, luyện lại bằng flashcard.</h1>
-            <p>
-              Hub này biến tài liệu Word rời rạc thành từng nhiệm vụ nhỏ: hiểu mục tiêu, làm từng bước, tự kiểm tra và tra cứu
-              nhanh khi bị kẹt.
-            </p>
             <div className="hero-actions">
               <a href="#lesson" className="primary-action">
                 Vào bài đang học
@@ -362,7 +381,7 @@ export function App() {
             </a>
           </div>
           <div className="spotify-tabs" role="tablist" aria-label="Chọn playlist Spotify">
-            {spotifyStations.map((station) => (
+            {availableSpotifyStations.map((station) => (
               <button
                 key={station.id}
                 className={activeSpotify.id === station.id ? "active" : ""}
@@ -373,6 +392,16 @@ export function App() {
               </button>
             ))}
           </div>
+          <div className="spotify-custom-form">
+            <input
+              value={customSpotifyInput}
+              onChange={(event) => setCustomSpotifyInput(event.target.value)}
+              placeholder="Dán link playlist Spotify của bạn"
+              aria-label="Link playlist Spotify cá nhân"
+            />
+            <button onClick={useCustomSpotifyPlaylist}>Dùng playlist này</button>
+          </div>
+          {customSpotifyError && <p className="spotify-error">{customSpotifyError}</p>}
           <iframe
             title={`Spotify playlist ${activeSpotify.label}`}
             src={activeSpotify.embedUrl}
@@ -539,7 +568,7 @@ export function App() {
               <div className="quiz-title-row">
                 <div>
                   <h3>Thực hành tương tác</h3>
-                  <p className="section-note">Luyện thứ tự thao tác và phím tắt theo tình huống, không chỉ chọn đáp án.</p>
+                  {/* <p className="section-note">Luyện thứ tự thao tác và phím tắt theo tình huống, không chỉ chọn đáp án.</p> */}
                 </div>
               </div>
               <div className="interactive-grid">
@@ -822,6 +851,20 @@ function formatShortcutEvent(event: KeyboardEvent<HTMLButtonElement>) {
 
 function arraysEqual(left: string[], right: string[]) {
   return left.length === right.length && left.every((item, index) => item === right[index]);
+}
+
+function extractSpotifyPlaylistId(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+
+  const uriMatch = trimmed.match(/^spotify:playlist:([A-Za-z0-9]+)$/);
+  if (uriMatch) return uriMatch[1];
+
+  const urlMatch = trimmed.match(/open\.spotify\.com\/playlist\/([A-Za-z0-9]+)/);
+  if (urlMatch) return urlMatch[1];
+
+  const idMatch = trimmed.match(/^[A-Za-z0-9]{16,}$/);
+  return idMatch ? trimmed : "";
 }
 
 function buildLocalPersonalizedPlan(
