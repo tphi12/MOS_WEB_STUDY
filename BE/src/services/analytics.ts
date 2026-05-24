@@ -1,15 +1,22 @@
-import { attempts, blueprints, questions, users } from "../seed.js";
-import type { AttemptAnswer, ExamAttempt, Mastery, MosDomain, Question } from "../types.js";
+import { collections, withoutMongoId } from "../db.js";
+import type { AttemptAnswer, ExamAttempt, Mastery, MosDomain, Question, User } from "../types.js";
 
-export function getStudentAnalytics(studentId: string) {
-  const studentAttempts = attempts.filter((attempt) => attempt.studentId === studentId && attempt.submittedAt);
-  const mastery = buildMastery(studentId, studentAttempts);
-  const domainMastery = buildDomainMastery(studentAttempts);
+export async function getStudentAnalytics(studentId: string) {
+  const [student, studentAttempts, questions] = await Promise.all([
+    collections().users.findOne({ id: studentId }, withoutMongoId<User>()),
+    collections()
+      .attempts.find({ studentId, submittedAt: { $exists: true } }, withoutMongoId<ExamAttempt>())
+      .toArray(),
+    collections().questions.find({}, withoutMongoId<Question>()).toArray(),
+  ]);
+
+  const mastery = buildMastery(studentId, studentAttempts, questions);
+  const domainMastery = buildDomainMastery(studentAttempts, questions);
   const recommendations = buildRecommendations(mastery);
   const latestAttempt = [...studentAttempts].sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
 
   return {
-    student: users.find((user) => user.id === studentId),
+    student,
     summary: {
       attempts: studentAttempts.length,
       averageMosScore: average(studentAttempts.map((attempt) => attempt.mosScore)),
@@ -20,36 +27,48 @@ export function getStudentAnalytics(studentId: string) {
     domainMastery,
     skillMastery: mastery,
     recommendations,
+    latestAttempt,
   };
 }
 
-export function getStudentPersonalization(studentId: string) {
-  const analytics = getStudentAnalytics(studentId);
+export async function getStudentPersonalization(studentId: string) {
+  const analytics = await getStudentAnalytics(studentId);
+  if (!analytics.student) throw new Error("Student not found");
+
   const weakSkills = analytics.skillMastery.filter((skill) => skill.masteryPercent < 70).slice(0, 3);
   const nextFocus = weakSkills[0]?.skillTag ?? "page-setup";
   const recommendedLessonId = mapSkillToLesson(nextFocus);
+  const passReady = analytics.summary.passReady;
 
   return {
     student: analytics.student,
-    readiness: analytics.summary.passReady ? "exam-ready" : "needs-practice",
+    readiness: passReady ? "exam-ready" : "needs-practice",
     mosScore: analytics.summary.latestMosScore,
     recommendedLessonId,
     reason:
       weakSkills.length > 0
-        ? `Hệ thống phát hiện kỹ năng ${nextFocus} còn yếu, nên ưu tiên ôn lại bài liên quan trước khi làm đề tiếp.`
-        : "Kết quả hiện tại ổn, nên tiếp tục bài kế tiếp và làm thêm đề động để giữ nhịp luyện tập.",
+        ? `He thong phat hien ky nang ${nextFocus} con yeu, nen uu tien on lai bai lien quan truoc khi lam de tiep.`
+        : "Ket qua hien tai on dinh, nen tiep tuc bai ke tiep va lam them de dong de giu nhip luyen tap.",
     weakSkills,
     recommendations: analytics.recommendations,
+    nextActions: buildNextActions(weakSkills, passReady),
+    focusPlan: buildFocusPlan(weakSkills, recommendedLessonId),
     learningRules: [
-      "Hoàn thành checklist bài học để mở khóa khuyến nghị tiếp theo.",
-      "Nếu trắc nghiệm dưới 80%, hệ thống giữ học viên ở bài hiện tại để ôn lại.",
-      "Nếu một skill tag sai nhiều lần, lộ trình ưu tiên bài học liên quan skill đó.",
+      "Hoan thanh checklist bai hoc de mo khoa goi y tiep theo.",
+      "Neu trac nghiem duoi 80%, he thong giu hoc vien o bai hien tai de on lai.",
+      "Neu mot skill tag sai nhieu lan, lo trinh uu tien bai hoc lien quan skill do.",
     ],
   };
 }
 
-export function getAdminOverview() {
-  const submittedAttempts = attempts.filter((attempt) => attempt.submittedAt);
+export async function getAdminOverview() {
+  const [users, questions, blueprints, submittedAttempts] = await Promise.all([
+    collections().users.find({}, withoutMongoId<User>()).toArray(),
+    collections().questions.find({}, withoutMongoId<Question>()).toArray(),
+    collections().blueprints.find({}, withoutMongoId()).toArray(),
+    collections().attempts.find({ submittedAt: { $exists: true } }, withoutMongoId<ExamAttempt>()).toArray(),
+  ]);
+
   return {
     totals: {
       students: users.filter((user) => user.role === "student").length,
@@ -66,13 +85,13 @@ export function getAdminOverview() {
         ),
       ),
     },
-    weakestSkills: getWeakestSkills(submittedAttempts).slice(0, 6),
-    hardestQuestions: getHardestQuestions(submittedAttempts).slice(0, 6),
-    retentionAlerts: getRetentionAlerts(),
+    weakestSkills: getWeakestSkills(submittedAttempts, questions).slice(0, 6),
+    hardestQuestions: getHardestQuestions(submittedAttempts, questions).slice(0, 6),
+    retentionAlerts: getRetentionAlerts(users, submittedAttempts),
   };
 }
 
-function buildMastery(studentId: string, studentAttempts: ExamAttempt[]): Mastery[] {
+function buildMastery(studentId: string, studentAttempts: ExamAttempt[], questions: Question[]): Mastery[] {
   const buckets = new Map<string, { attempts: number; correct: number; seconds: number; lastPracticedAt: string }>();
   const questionMap = new Map(questions.map((question) => [question.id, question]));
 
@@ -81,7 +100,12 @@ function buildMastery(studentId: string, studentAttempts: ExamAttempt[]): Master
       const question = questionMap.get(answer.questionId);
       if (!question) continue;
       for (const skillTag of question.skillTags) {
-        const current = buckets.get(skillTag) ?? { attempts: 0, correct: 0, seconds: 0, lastPracticedAt: attempt.submittedAt ?? attempt.startedAt };
+        const current = buckets.get(skillTag) ?? {
+          attempts: 0,
+          correct: 0,
+          seconds: 0,
+          lastPracticedAt: attempt.submittedAt ?? attempt.startedAt,
+        };
         current.attempts += 1;
         current.correct += answer.isCorrect ? 1 : 0;
         current.seconds += answer.elapsedSeconds;
@@ -104,7 +128,7 @@ function buildMastery(studentId: string, studentAttempts: ExamAttempt[]): Master
     .sort((a, b) => a.masteryPercent - b.masteryPercent);
 }
 
-function buildDomainMastery(studentAttempts: ExamAttempt[]) {
+function buildDomainMastery(studentAttempts: ExamAttempt[], questions: Question[]) {
   const buckets = new Map<MosDomain, { attempts: number; correct: number }>();
   const questionMap = new Map(questions.map((question) => [question.id, question]));
 
@@ -132,7 +156,7 @@ function buildRecommendations(mastery: Mastery[]) {
     return [
       {
         priority: "maintenance",
-        message: "Bạn đang đạt mức ổn. Hãy làm thêm đề thi động để giữ tốc độ và độ chính xác.",
+        message: "Ban dang dat muc on. Hay lam them de thi dong de giu toc do va do chinh xac.",
         skillTags: [],
       },
     ];
@@ -140,9 +164,34 @@ function buildRecommendations(mastery: Mastery[]) {
 
   return weakSkills.map((skill) => ({
     priority: skill.masteryPercent < 50 ? "urgent" : "practice",
-    message: `Kỹ năng ${skill.skillTag} đang ở ${skill.masteryPercent}%. Nên ôn lại lesson liên quan và làm thêm 5 câu tagged ${skill.skillTag}.`,
+    message: `Ky nang ${skill.skillTag} dang o ${skill.masteryPercent}%. Nen on lai lesson lien quan va lam them 5 cau tagged ${skill.skillTag}.`,
     skillTags: [skill.skillTag],
   }));
+}
+
+function buildNextActions(weakSkills: Mastery[], passReady: boolean) {
+  if (passReady && weakSkills.length === 0) {
+    return [
+      "Lam them mot de mock day du thoi gian de giu nhip.",
+      "On lai cac thao tac de mat diem: cap nhat field, section break, review.",
+      "Tu cham lai toc do thao tac truoc ngay thi.",
+    ];
+  }
+
+  return [
+    `On lai lesson gan voi skill ${weakSkills[0]?.skillTag ?? "page-setup"}.`,
+    "Lam 5 cau luyen tap dung skill yeu truoc khi lam de moi.",
+    "Sau khi dat toi thieu 80%, chuyen sang mock test du thoi gian.",
+  ];
+}
+
+function buildFocusPlan(weakSkills: Mastery[], recommendedLessonId: string) {
+  return {
+    recommendedLessonId,
+    targetMasteryPercent: 80,
+    dailyMinutes: weakSkills.some((skill) => skill.masteryPercent < 50) ? 35 : 25,
+    skillTags: weakSkills.map((skill) => skill.skillTag),
+  };
 }
 
 function mapSkillToLesson(skillTag: string) {
@@ -172,8 +221,8 @@ function mapSkillToLesson(skillTag: string) {
   return map[skillTag] ?? "page-setup-document-properties";
 }
 
-function getWeakestSkills(submittedAttempts: ExamAttempt[]) {
-  const allMastery = buildMastery("all", submittedAttempts);
+function getWeakestSkills(submittedAttempts: ExamAttempt[], questions: Question[]) {
+  const allMastery = buildMastery("all", submittedAttempts, questions);
   return allMastery.map(({ skillTag, masteryPercent, attempts, avgSeconds }) => ({
     skillTag,
     masteryPercent,
@@ -182,7 +231,7 @@ function getWeakestSkills(submittedAttempts: ExamAttempt[]) {
   }));
 }
 
-function getHardestQuestions(submittedAttempts: ExamAttempt[]) {
+function getHardestQuestions(submittedAttempts: ExamAttempt[], questions: Question[]) {
   const buckets = new Map<string, { question: Question; answers: AttemptAnswer[] }>();
   const questionMap = new Map(questions.map((question) => [question.id, question]));
 
@@ -208,7 +257,7 @@ function getHardestQuestions(submittedAttempts: ExamAttempt[]) {
     .sort((a, b) => b.wrongRate - a.wrongRate);
 }
 
-function getRetentionAlerts() {
+function getRetentionAlerts(users: User[], attempts: ExamAttempt[]) {
   const students = users.filter((user) => user.role === "student");
   return students
     .map((student) => {
@@ -223,9 +272,9 @@ function getRetentionAlerts() {
         lowScoreStreak,
         alert:
           inactiveDays >= 7
-            ? "Không đăng nhập từ 7 ngày trở lên"
+            ? "Khong dang nhap tu 7 ngay tro len"
             : lowScoreStreak
-              ? "Nhiều lần thi thử dưới 500 điểm"
+              ? "Nhieu lan thi thu duoi 500 diem"
               : "",
       };
     })

@@ -1,5 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import type { KeyboardEvent } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { CKEditor } from "@ckeditor/ckeditor5-react";
+import {
+  Bold,
+  ClassicEditor,
+  Essentials,
+  Heading,
+  Italic,
+  Link as CkLink,
+  List,
+  Paragraph,
+  Table,
+  TableToolbar,
+  Undo,
+} from "ckeditor5";
 import {
   BookOpen,
   Brain,
@@ -7,7 +22,6 @@ import {
   Clipboard,
   Filter,
   GraduationCap,
-  LayoutList,
   Lightbulb,
   Menu,
   Music,
@@ -16,8 +30,9 @@ import {
   Target,
   X,
 } from "lucide-react";
-import { commonErrors, groupLabels, lessons, shortcuts } from "./data";
-import type { Lesson, Shortcut } from "./types";
+import { groupLabels, lessons, shortcuts } from "./data";
+import type { Lesson, Shortcut, WordLab, WordLabCheck } from "./types";
+import "ckeditor5/ckeditor5.css";
 
 type SearchResult = {
   type: string;
@@ -60,6 +75,13 @@ type PersonalizedPlan = {
   reason: string;
   weakSkills: Array<{ skillTag: string; masteryPercent: number; avgSeconds?: number }>;
   recommendations: Array<{ priority: string; message: string; skillTags: string[] }>;
+  nextActions?: string[];
+  focusPlan?: {
+    recommendedLessonId: string;
+    targetMasteryPercent: number;
+    dailyMinutes: number;
+    skillTags: string[];
+  };
   learningRules: string[];
 };
 
@@ -96,7 +118,10 @@ const spotifyStations = [
 ];
 
 export function App() {
-  const [activeLessonId, setActiveLessonId] = useState(lessons[0].id);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const orderedLessons = useMemo(() => orderLessons(lessons), []);
+  const [activeLessonId, setActiveLessonId] = useState(orderedLessons[0].id);
   const [query, setQuery] = useState("");
   const [shortcutCategory, setShortcutCategory] = useState<(typeof shortcutCategories)[number]>("Tất cả");
   const [checkedSteps, setCheckedSteps] = useState<Record<string, boolean>>({});
@@ -113,16 +138,17 @@ export function App() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
 
-  const activeLesson = lessons.find((lesson) => lesson.id === activeLessonId) ?? lessons[0];
-  const activeIndex = lessons.findIndex((lesson) => lesson.id === activeLesson.id);
+  const activeLesson = orderedLessons.find((lesson) => lesson.id === activeLessonId) ?? orderedLessons[0];
+  const activeIndex = orderedLessons.findIndex((lesson) => lesson.id === activeLesson.id);
+  const isTheoryOnlyLesson = activeLesson.id === "common-errors";
   const lessonStepKeys = activeLesson.steps.map((_, index) => `${activeLesson.id}-${index}`);
   const completedSteps = lessonStepKeys.filter((key) => checkedSteps[key]).length;
   const lessonProgress = Math.round((completedSteps / activeLesson.steps.length) * 100);
   const theoryBlocks = getTheoryBlocks(activeLesson);
   const mosTheory = getMosTheory(activeLesson);
-  const knowledgeChecks = getKnowledgeChecks(activeLesson);
-  const sequenceQuestions = getSequenceQuestions(activeLesson);
-  const shortcutChallenges = getShortcutChallenges(activeLesson);
+  const knowledgeChecks = isTheoryOnlyLesson ? [] : getKnowledgeChecks(activeLesson);
+  const sequenceQuestions = isTheoryOnlyLesson ? [] : getSequenceQuestions(activeLesson);
+  const shortcutChallenges = isTheoryOnlyLesson ? [] : getShortcutChallenges(activeLesson);
   const correctQuizCount = knowledgeChecks.filter((question, index) => {
     const key = `${activeLesson.id}-mcq-${index}`;
     return quizAnswers[key] === question.answer;
@@ -135,16 +161,12 @@ export function App() {
   const recommendedLesson = lessons.find((lesson) => lesson.id === personalizedPlan.recommendedLessonId) ?? activeLesson;
   const availableSpotifyStations = customSpotifyStation ? [customSpotifyStation, ...spotifyStations] : spotifyStations;
   const activeSpotify = availableSpotifyStations.find((station) => station.id === activeSpotifyId) ?? availableSpotifyStations[0];
+  const isPersonalizeRoute = location.pathname === "/personalize";
 
   const searchResults = useMemo<SearchResult[]>(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) return [];
     return [
-      ...commonErrors
-        .filter((item) =>
-          [item.title, item.symptoms, item.fix, ...item.tags].some((value) => value.toLowerCase().includes(normalized)),
-        )
-        .map((item) => ({ type: "Lỗi thường gặp", title: item.title, detail: item.fix })),
       ...lessons
         .filter((lesson) =>
           [
@@ -193,7 +215,8 @@ export function App() {
   function selectLesson(id: string) {
     setActiveLessonId(id);
     setMobileNavOpen(false);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    navigate("/");
+    window.setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 0);
   }
 
   function moveSequenceStep(questionKey: string, fallbackSteps: string[], index: number, direction: -1 | 1) {
@@ -245,11 +268,16 @@ export function App() {
           </div>
         </div>
 
+        <Link className={`side-route-link ${isPersonalizeRoute ? "active" : ""}`} to="/personalize">
+          <Sparkles size={17} />
+          <span>Lộ trình cá nhân hóa</span>
+        </Link>
+
         <nav className="lesson-nav" aria-label="Danh sách bài học">
           {(Object.keys(groupLabels) as Array<Lesson["group"]>).map((group) => (
             <section key={group}>
               <p className="nav-group">{groupLabels[group]}</p>
-              {lessons
+              {orderedLessons
                 .filter((lesson) => lesson.group === group)
                 .map((lesson) => (
                   <button
@@ -282,7 +310,7 @@ export function App() {
           </div>
           <div className="study-streak">
             <Sparkles size={16} />
-            <span>{lessons.length} bài trọng tâm</span>
+            <Link to="/personalize">Personalize</Link>
           </div>
         </header>
 
@@ -313,6 +341,15 @@ export function App() {
           </section>
         )}
 
+        {isPersonalizeRoute ? (
+          <PersonalizePage
+            plan={personalizedPlan}
+            recommendedLesson={recommendedLesson}
+            activeLesson={activeLesson}
+            selectLesson={selectLesson}
+          />
+        ) : (
+          <>
         <section className="hero-panel">
           <div>
             <p className="eyebrow">Lộ trình tự học MOS Word</p>
@@ -331,39 +368,9 @@ export function App() {
               <div key={key} className="route-step">
                 <span>{index + 1}</span>
                 <strong>{label}</strong>
-                <small>{lessons.filter((lesson) => lesson.group === key).length} bài</small>
+                <small>{orderedLessons.filter((lesson) => lesson.group === key).length} bài</small>
               </div>
             ))}
-          </div>
-        </section>
-
-        <section className="personalized-panel" aria-label="Lộ trình cá nhân hóa">
-          <div className="personalized-copy">
-            <p className="eyebrow">Lộ trình cá nhân hóa</p>
-            <h2>{personalizedPlan.readiness === "exam-ready" ? "Đã sẵn sàng luyện đề chuẩn MOS" : "Nên ôn theo kỹ năng yếu trước"}</h2>
-            <p>{personalizedPlan.reason}</p>
-            <button onClick={() => selectLesson(recommendedLesson.id)}>Học bài được gợi ý</button>
-          </div>
-          <div className="recommended-lesson-card">
-            <span>Bài nên học tiếp</span>
-            <strong>{recommendedLesson.title}</strong>
-            <small>{recommendedLesson.subtitle}</small>
-          </div>
-          <div className="mastery-card">
-            <span>Skill Mastery</span>
-            {personalizedPlan.weakSkills.length ? (
-              personalizedPlan.weakSkills.slice(0, 3).map((skill) => (
-                <div key={skill.skillTag} className="mastery-row">
-                  <div>
-                    <strong>{skill.skillTag}</strong>
-                    <small>{skill.masteryPercent}% thành thạo</small>
-                  </div>
-                  <span style={{ width: `${skill.masteryPercent}%` }} />
-                </div>
-              ))
-            ) : (
-              <p className="muted">Chưa có dữ liệu yếu rõ ràng. Hệ thống sẽ cập nhật sau khi bạn làm quiz/test.</p>
-            )}
           </div>
         </section>
 
@@ -508,6 +515,8 @@ export function App() {
               </div>
             </section>
 
+            {activeLesson.lab && <WordLabPanel lab={activeLesson.lab} />}
+
             <section className="learning-block">
               <div className="callout-grid">
                 <div className="callout info">
@@ -527,6 +536,7 @@ export function App() {
               </div>
             </section>
 
+            {activeLesson.quickCommands.length > 0 && (
             <section className="learning-block">
               <h3>Copy nhanh thông số</h3>
               <div className="command-list">
@@ -544,7 +554,9 @@ export function App() {
                 ))}
               </div>
             </section>
+            )}
 
+            {activeLesson.miniQuiz.length > 0 && (
             <section className="learning-block">
               <h3>Flashcard tự kiểm tra</h3>
               <div className="flashcard-grid">
@@ -563,7 +575,9 @@ export function App() {
                 })}
               </div>
             </section>
+            )}
 
+            {(sequenceQuestions.length > 0 || shortcutChallenges.length > 0) && (
             <section className="learning-block">
               <div className="quiz-title-row">
                 <div>
@@ -640,7 +654,9 @@ export function App() {
                 </div>
               </div>
             </section>
+            )}
 
+            {knowledgeChecks.length > 0 && (
             <section className="learning-block">
               <div className="quiz-title-row">
                 <div>
@@ -689,12 +705,13 @@ export function App() {
                 })}
               </div>
             </section>
+            )}
 
             <footer className="lesson-switcher">
-              <button disabled={activeIndex === 0} onClick={() => selectLesson(lessons[activeIndex - 1].id)}>
+              <button disabled={activeIndex === 0} onClick={() => selectLesson(orderedLessons[activeIndex - 1].id)}>
                 Bài trước
               </button>
-              <button disabled={activeIndex === lessons.length - 1} onClick={() => selectLesson(lessons[activeIndex + 1].id)}>
+              <button disabled={activeIndex === orderedLessons.length - 1} onClick={() => selectLesson(orderedLessons[activeIndex + 1].id)}>
                 Bài tiếp theo
               </button>
             </footer>
@@ -727,22 +744,6 @@ export function App() {
               </div>
             </section>
 
-            <section>
-              <div className="tool-heading">
-                <LayoutList size={18} />
-                <strong>Lỗi thường gặp</strong>
-              </div>
-              <div className="error-list">
-                {commonErrors.slice(0, 4).map((error) => (
-                  <details key={error.title}>
-                    <summary>{error.title}</summary>
-                    <p>{error.symptoms}</p>
-                    <strong>{error.fix}</strong>
-                  </details>
-                ))}
-              </div>
-            </section>
-
             <section className="exam-note">
               <GraduationCap size={20} />
               <strong>Gợi ý học hiệu quả</strong>
@@ -750,9 +751,226 @@ export function App() {
             </section>
           </aside>
         </div>
+          </>
+        )}
       </main>
     </div>
   );
+}
+
+function PersonalizePage({
+  plan,
+  recommendedLesson,
+  activeLesson,
+  selectLesson,
+}: {
+  plan: PersonalizedPlan;
+  recommendedLesson: Lesson;
+  activeLesson: Lesson;
+  selectLesson: (id: string) => void;
+}) {
+  const actions = plan.nextActions ?? [
+    "Ôn lại lesson được gợi ý.",
+    "Hoàn thành checklist và quiz tối thiểu 80%.",
+    "Làm thêm mock test sau khi kỹ năng yếu ổn định.",
+  ];
+  const targetMastery = plan.focusPlan?.targetMasteryPercent ?? 80;
+  const dailyMinutes = plan.focusPlan?.dailyMinutes ?? recommendedLesson.minutes;
+  const focusSkills = plan.focusPlan?.skillTags?.length
+    ? plan.focusPlan.skillTags
+    : plan.weakSkills.map((skill) => skill.skillTag);
+
+  return (
+    <section className="personalize-page" aria-label="Lộ trình cá nhân hóa">
+      <div className="personalize-hero">
+        <div>
+          <p className="eyebrow">Personalize</p>
+          <h1>{plan.readiness === "exam-ready" ? "Sẵn sàng luyện đề MOS" : "Ưu tiên đúng kỹ năng yếu"}</h1>
+          <p>{plan.reason}</p>
+          <div className="personalize-actions">
+            <button onClick={() => selectLesson(recommendedLesson.id)}>Mở bài được gợi ý</button>
+            <Link to="/">Quay lại lớp học</Link>
+          </div>
+        </div>
+        <div className="score-dial" aria-label={`MOS score ${plan.mosScore}`}>
+          <span>MOS score</span>
+          <strong>{plan.mosScore}</strong>
+          <small>{plan.readiness === "exam-ready" ? "Exam-ready" : "Needs practice"}</small>
+        </div>
+      </div>
+
+      <div className="personalize-grid">
+        <section className="personalize-section recommended-path">
+          <div className="section-heading">
+            <strong>Bài nên học tiếp</strong>
+            <span>{dailyMinutes} phút/ngày</span>
+          </div>
+          <h2>{recommendedLesson.title}</h2>
+          <p>{recommendedLesson.subtitle}</p>
+          <div className="path-metrics">
+            <div>
+              <span>Mục tiêu mastery</span>
+              <strong>{targetMastery}%</strong>
+            </div>
+            <div>
+              <span>Bài đang mở</span>
+              <strong>{activeLesson.minutes} phút</strong>
+            </div>
+          </div>
+        </section>
+
+        <section className="personalize-section">
+          <div className="section-heading">
+            <strong>Skill yếu</strong>
+            <span>{focusSkills.length || 1} focus</span>
+          </div>
+          <div className="skill-stack">
+            {plan.weakSkills.length ? (
+              plan.weakSkills.map((skill) => (
+                <div key={skill.skillTag} className="skill-focus-row">
+                  <div>
+                    <strong>{skill.skillTag}</strong>
+                    <small>{skill.avgSeconds ? `${skill.avgSeconds}s trung bình` : "Cần luyện thêm"}</small>
+                  </div>
+                  <span>{skill.masteryPercent}%</span>
+                  <b style={{ width: `${Math.max(8, skill.masteryPercent)}%` }} />
+                </div>
+              ))
+            ) : (
+              <p className="muted">Chưa có skill yếu rõ ràng. Hệ thống sẽ cập nhật sau khi có thêm attempt.</p>
+            )}
+          </div>
+        </section>
+
+        <section className="personalize-section">
+          <div className="section-heading">
+            <strong>Việc cần làm</strong>
+          </div>
+          <ol className="action-list">
+            {actions.map((action) => (
+              <li key={action}>{action}</li>
+            ))}
+          </ol>
+        </section>
+
+        <section className="personalize-section">
+          <div className="section-heading">
+            <strong>Luật học</strong>
+          </div>
+          <div className="rule-list">
+            {plan.learningRules.map((rule) => (
+              <p key={rule}>{rule}</p>
+            ))}
+          </div>
+        </section>
+
+        <section className="personalize-section recommendations-panel">
+          <div className="section-heading">
+            <strong>Khuyến nghị từ backend</strong>
+          </div>
+          {plan.recommendations.map((recommendation) => (
+            <article key={`${recommendation.priority}-${recommendation.message}`}>
+              <span>{recommendation.priority}</span>
+              <p>{recommendation.message}</p>
+            </article>
+          ))}
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function WordLabPanel({ lab }: { lab: WordLab }) {
+  const [content, setContent] = useState(lab.initialContent);
+  const results = useMemo(() => lab.checks.map((check) => ({ ...check, passed: evaluateLabCheck(content, check) })), [content, lab]);
+  const passedCount = results.filter((result) => result.passed).length;
+
+  useEffect(() => {
+    setContent(lab.initialContent);
+  }, [lab]);
+
+  const editorConfig = useMemo(
+    () => ({
+      licenseKey: "GPL",
+      plugins: [Essentials, Paragraph, Heading, Bold, Italic, CkLink, List, Table, TableToolbar, Undo],
+      toolbar: ["undo", "redo", "|", "heading", "|", "bold", "italic", "link", "|", "bulletedList", "numberedList", "|", "insertTable"],
+      heading: {
+        options: [
+          { model: "paragraph", title: "Paragraph", class: "ck-heading_paragraph" },
+          { model: "heading1", view: "h2", title: "Heading 1", class: "ck-heading_heading1" },
+          { model: "heading2", view: "h3", title: "Heading 2", class: "ck-heading_heading2" },
+        ],
+      },
+      table: {
+        contentToolbar: ["tableColumn", "tableRow", "mergeTableCells"],
+      },
+    }) as Record<string, unknown>,
+    [],
+  );
+
+  return (
+    <section className="learning-block word-lab">
+      <div className="word-lab-head">
+        <div>
+          <p className="eyebrow">Word lab</p>
+          <h3>{lab.title}</h3>
+          <p>{lab.brief}</p>
+        </div>
+        <div className="lab-score">
+          {passedCount}/{results.length}
+        </div>
+      </div>
+
+      <div className="word-lab-grid">
+        <aside className="lab-brief">
+          <strong>Yêu cầu lab</strong>
+          <ol>
+            {lab.instructions.map((instruction) => (
+              <li key={instruction}>{instruction}</li>
+            ))}
+          </ol>
+          <div className="lab-checks">
+            {results.map((result) => (
+              <div key={result.id} className={result.passed ? "passed" : ""}>
+                <CheckCircle2 size={16} />
+                <span>{result.label}</span>
+              </div>
+            ))}
+          </div>
+        </aside>
+
+        <div className="word-editor-shell">
+          <CKEditor
+            editor={ClassicEditor}
+            config={editorConfig}
+            data={lab.initialContent}
+            onChange={(_, editor) => setContent(editor.getData())}
+          />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function evaluateLabCheck(html: string, check: WordLabCheck) {
+  const document = new DOMParser().parseFromString(html, "text/html");
+  const text = document.body.textContent?.replace(/\s+/g, " ").trim().toLowerCase() ?? "";
+  const value = check.value?.toLowerCase() ?? "";
+
+  if (check.type === "contains") return Boolean(value) && text.includes(value);
+  if (check.type === "heading") return Boolean(check.value && document.body.querySelector(check.value));
+  if (check.type === "bold") return Boolean(document.body.querySelector("strong, b"));
+  if (check.type === "table") return Boolean(document.body.querySelector("table"));
+  if (check.type === "list") return Boolean(document.body.querySelector("ul, ol"));
+  return false;
+}
+
+function orderLessons(items: Lesson[]) {
+  return [...items].sort((left, right) => {
+    if (left.id === "common-errors") return 1;
+    if (right.id === "common-errors") return -1;
+    return 0;
+  });
 }
 
 function getSequenceQuestions(lesson: Lesson): SequenceQuestion[] {

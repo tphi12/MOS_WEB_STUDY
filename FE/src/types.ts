@@ -26,6 +26,7 @@ export type Lesson = {
     tasks: string[];
     selfCheck: string[];
   }[];
+  lab?: WordLab;
 };
 
 export type Shortcut = {
@@ -34,9 +35,17 @@ export type Shortcut = {
   category: "Định dạng" | "Di chuyển" | "Tài liệu" | "Nâng cao";
 };
 
-export type CommonError = {
+export type WordLab = {
   title: string;
-  symptoms: string;
-  fix: string;
-  tags: string[];
+  brief: string;
+  initialContent: string;
+  instructions: string[];
+  checks: WordLabCheck[];
+};
+
+export type WordLabCheck = {
+  id: string;
+  label: string;
+  type: "contains" | "heading" | "bold" | "table" | "list";
+  value?: string;
 };

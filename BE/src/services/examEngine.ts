@@ -1,36 +1,48 @@
-import { attempts, blueprints, questions } from "../seed.js";
+import { collections, withoutMongoId } from "../db.js";
 import type { AttemptAnswer, ExamAttempt, ExamBlueprint, Question } from "../types.js";
 
-export function listQuestionBank(filters: { domain?: string; difficulty?: string; skillTag?: string }) {
-  return questions.filter((question) => {
-    if (filters.domain && question.domain !== filters.domain) return false;
-    if (filters.difficulty && question.difficulty !== filters.difficulty) return false;
-    if (filters.skillTag && !question.skillTags.includes(filters.skillTag)) return false;
-    return true;
-  });
+export type SafeQuestion = Omit<Question, "expectedAnswer">;
+
+export async function listQuestionBank(filters: { domain?: string; difficulty?: string; skillTag?: string }) {
+  const query: Record<string, unknown> = {};
+  if (filters.domain) query.domain = filters.domain;
+  if (filters.difficulty) query.difficulty = filters.difficulty;
+  if (filters.skillTag) query.skillTags = filters.skillTag;
+
+  return collections().questions.find(query, withoutMongoId<Question>()).toArray();
 }
 
-export function createQuestion(question: Question) {
-  if (questions.some((item) => item.id === question.id)) throw new Error("Question id already exists");
-  questions.push(question);
+export async function listSafeQuestionBank(filters: { domain?: string; difficulty?: string; skillTag?: string }) {
+  const questions = await listQuestionBank(filters);
+  return questions.map(maskQuestionAnswer);
+}
+
+export async function createQuestion(question: Question) {
+  const existing = await collections().questions.findOne({ id: question.id });
+  if (existing) throw new Error("Question id already exists");
+  await collections().questions.insertOne(question);
   return question;
 }
 
-export function createExamBlueprint(blueprint: ExamBlueprint) {
-  if (blueprints.some((item) => item.id === blueprint.id)) throw new Error("Blueprint id already exists");
+export async function createExamBlueprint(blueprint: ExamBlueprint) {
+  const existing = await collections().blueprints.findOne({ id: blueprint.id });
+  if (existing) throw new Error("Blueprint id already exists");
   const totalPercent = blueprint.domainMatrix.reduce((sum, row) => sum + row.percent, 0);
   if (totalPercent !== 100) throw new Error("Blueprint matrix percent must equal 100");
-  blueprints.push(blueprint);
+  await collections().blueprints.insertOne(blueprint);
   return blueprint;
 }
 
-export function listExamBlueprints() {
-  return blueprints;
+export async function listExamBlueprints() {
+  return collections().blueprints.find({}, withoutMongoId<ExamBlueprint>()).toArray();
 }
 
-export function generateExamAttempt(studentId: string, blueprintId: string) {
-  const blueprint = getBlueprint(blueprintId);
-  const selected = selectQuestionsByMatrix(blueprint);
+export async function generateExamAttempt(studentId: string, blueprintId: string) {
+  const student = await collections().users.findOne({ id: studentId, role: "student" });
+  if (!student) throw new Error("Student not found");
+
+  const blueprint = await getBlueprint(blueprintId);
+  const selected = await selectQuestionsByMatrix(blueprint);
   const attempt: ExamAttempt = {
     id: `attempt-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     studentId,
@@ -42,7 +54,7 @@ export function generateExamAttempt(studentId: string, blueprintId: string) {
     mosScore: blueprint.mosScaleMin,
   };
 
-  attempts.push(attempt);
+  await collections().attempts.insertOne(attempt);
 
   return {
     attempt,
@@ -50,22 +62,35 @@ export function generateExamAttempt(studentId: string, blueprintId: string) {
   };
 }
 
-export function submitAttempt(attemptId: string, submittedAnswers: Array<Omit<AttemptAnswer, "isCorrect">>) {
-  const attempt = attempts.find((item) => item.id === attemptId);
+export async function submitAttempt(attemptId: string, submittedAnswers: Array<Omit<AttemptAnswer, "isCorrect">>) {
+  const attempt = await collections().attempts.findOne({ id: attemptId }, withoutMongoId<ExamAttempt>());
   if (!attempt) throw new Error("Attempt not found");
   if (attempt.submittedAt) throw new Error("Attempt already submitted");
 
+  const duplicateQuestionId = findDuplicate(submittedAnswers.map((answer) => answer.questionId));
+  if (duplicateQuestionId) throw new Error(`Duplicate answer for question ${duplicateQuestionId}`);
+
+  const unknownQuestionId = submittedAnswers.find((answer) => !attempt.questionIds.includes(answer.questionId))?.questionId;
+  if (unknownQuestionId) throw new Error(`Question ${unknownQuestionId} does not belong to this attempt`);
+
+  const questions = (await collections()
+    .questions.find({ id: { $in: attempt.questionIds } }, withoutMongoId<Question>())
+    .toArray()) as Question[];
   const questionMap = new Map(questions.map((question) => [question.id, question]));
-  const checkedAnswers = submittedAnswers
-    .filter((answer) => attempt.questionIds.includes(answer.questionId))
-    .map((answer) => {
-      const question = questionMap.get(answer.questionId);
-      if (!question) throw new Error(`Question ${answer.questionId} not found`);
-      return {
-        ...answer,
-        isCorrect: isAnswerCorrect(question, answer.answer),
-      };
-    });
+  const submittedMap = new Map(submittedAnswers.map((answer) => [answer.questionId, answer]));
+
+  const checkedAnswers = attempt.questionIds.map((questionId) => {
+    const question = questionMap.get(questionId);
+    if (!question) throw new Error(`Question ${questionId} not found`);
+    const submittedAnswer = submittedMap.get(questionId);
+    const answer = submittedAnswer?.answer ?? (Array.isArray(question.expectedAnswer) ? [] : "");
+    return {
+      questionId,
+      answer,
+      elapsedSeconds: submittedAnswer?.elapsedSeconds ?? 0,
+      isCorrect: isAnswerCorrect(question, answer),
+    };
+  });
 
   attempt.answers = checkedAnswers;
   attempt.submittedAt = new Date().toISOString();
@@ -73,29 +98,49 @@ export function submitAttempt(attemptId: string, submittedAnswers: Array<Omit<At
     const question = questionMap.get(answer.questionId);
     return total + (answer.isCorrect ? question?.points ?? 0 : 0);
   }, 0);
-  attempt.mosScore = convertToMosScore(attempt);
+  attempt.mosScore = await convertToMosScore(attempt);
+
+  await collections().attempts.updateOne(
+    { id: attempt.id },
+    {
+      $set: {
+        answers: attempt.answers,
+        submittedAt: attempt.submittedAt,
+        rawScore: attempt.rawScore,
+        mosScore: attempt.mosScore,
+      },
+    },
+  );
 
   return attempt;
 }
 
-export function getAttemptWithQuestions(attemptId: string) {
-  const attempt = attempts.find((item) => item.id === attemptId);
+export async function getAttemptWithQuestions(attemptId: string) {
+  const attempt = await collections().attempts.findOne({ id: attemptId }, withoutMongoId<ExamAttempt>());
   if (!attempt) throw new Error("Attempt not found");
+  const questions = (await collections()
+    .questions.find({ id: { $in: attempt.questionIds } }, withoutMongoId<Question>())
+    .toArray()) as Question[];
+  const questionMap = new Map(questions.map((question) => [question.id, question]));
   return {
     attempt,
-    questions: attempt.questionIds.map((questionId) => questions.find((question) => question.id === questionId)).filter(Boolean),
+    questions: attempt.questionIds
+      .map((questionId) => questionMap.get(questionId))
+      .filter((question): question is Question => Boolean(question))
+      .map(maskQuestionAnswer),
   };
 }
 
-export function getBlueprint(blueprintId: string) {
-  const blueprint = blueprints.find((item) => item.id === blueprintId);
+export async function getBlueprint(blueprintId: string) {
+  const blueprint = await collections().blueprints.findOne({ id: blueprintId }, withoutMongoId<ExamBlueprint>());
   if (!blueprint) throw new Error("Exam blueprint not found");
   return blueprint;
 }
 
-function selectQuestionsByMatrix(blueprint: ExamBlueprint) {
+async function selectQuestionsByMatrix(blueprint: ExamBlueprint) {
   const selected: Question[] = [];
   const selectedIds = new Set<string>();
+  const questions = await collections().questions.find({}, withoutMongoId<Question>()).toArray();
 
   for (const row of blueprint.domainMatrix) {
     const count = Math.max(1, Math.round((row.percent / 100) * blueprint.totalQuestions));
@@ -128,8 +173,11 @@ function isAnswerCorrect(question: Question, answer: string | string[]) {
   return typeof answer === "string" && normalize(answer) === normalize(question.expectedAnswer);
 }
 
-function convertToMosScore(attempt: ExamAttempt) {
-  const blueprint = getBlueprint(attempt.blueprintId);
+async function convertToMosScore(attempt: ExamAttempt) {
+  const blueprint = await getBlueprint(attempt.blueprintId);
+  const questions = await collections()
+    .questions.find({ id: { $in: attempt.questionIds } }, withoutMongoId<Question>())
+    .toArray();
   const totalPoints = attempt.questionIds.reduce((total, questionId) => {
     const question = questions.find((item) => item.id === questionId);
     return total + (question?.points ?? 0);
@@ -138,7 +186,7 @@ function convertToMosScore(attempt: ExamAttempt) {
   return Math.round(blueprint.mosScaleMin + ratio * (blueprint.mosScaleMax - blueprint.mosScaleMin));
 }
 
-function maskQuestionAnswer(question: Question) {
+export function maskQuestionAnswer(question: Question): SafeQuestion {
   const { expectedAnswer, ...safeQuestion } = question;
   return safeQuestion;
 }
@@ -153,4 +201,13 @@ function normalizeList(values: string[]) {
 
 function shuffle<T>(items: T[]) {
   return [...items].sort(() => Math.random() - 0.5);
+}
+
+function findDuplicate(values: string[]) {
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (seen.has(value)) return value;
+    seen.add(value);
+  }
+  return undefined;
 }

@@ -1,4 +1,4 @@
-import type { CommonError, Lesson, Shortcut } from "./types";
+import type { Lesson, Shortcut } from "./types";
 
 export const groupLabels = {
   research: "A. Học tập & nghiên cứu",
@@ -122,6 +122,22 @@ export const lessons: Lesson[] = [
         selfCheck: ["Không có đoạn khác font", "Không dùng nhiều Space để thụt dòng", "Khoảng cách đoạn đến từ Paragraph, không phải Enter dư"],
       },
     ],
+    lab: {
+      title: "",
+      brief: "Mô phỏng phần Normal Style bằng thao tác trực tiếp trên văn bản: sửa nội dung, nhấn mạnh ý chính và tạo đoạn văn sạch.",
+      initialContent:
+        "<p>Quan ly du an giao duc can ke hoach ro rang. Nhom sinh vien phai phan cong nhiem vu, theo doi tien do va tong hop minh chung truoc khi nop bao cao.</p><p>Hay bo sung mot doan ket luan ngan ve vai tro cua dinh dang van ban.</p>",
+      instructions: [
+        "Giữ nội dung thành ít nhất hai đoạn văn riêng.",
+        "Bôi đậm cụm 'ke hoach ro rang' hoặc một ý chính tương đương.",
+        "Thêm cụm 'dinh dang van ban' vào phần kết luận.",
+      ],
+      checks: [
+        { id: "paragraph-content", label: "Có nội dung về định dạng văn bản", type: "contains", value: "dinh dang van ban" },
+        { id: "bold-focus", label: "Có một ý chính được in đậm", type: "bold" },
+        { id: "has-text", label: "Giữ nội dung quản lý dự án giáo dục", type: "contains", value: "du an giao duc" },
+      ],
+    },
   },
   {
     id: "heading-toc-navigation",
@@ -178,6 +194,22 @@ export const lessons: Lesson[] = [
         selfCheck: ["Mục lục không gõ tay", "Số trang trong mục lục cập nhật", "Navigation Pane hiển thị đúng thứ bậc"],
       },
     ],
+    lab: {
+      title: "",
+      brief: "Tập biến dàn ý thô thành cấu trúc tài liệu có Heading để chuẩn bị cho mục lục tự động.",
+      initialContent:
+        "<p>Bao cao nhom du an giao duc</p><p>Mo dau</p><p>Ly do chon de tai</p><p>Muc tieu nghien cuu</p><p>Noi dung</p><p>Ke hoach thuc hien</p><p>Ket luan</p>",
+      instructions: [
+        "Chuyển tiêu đề chính thành Heading 1.",
+        "Chuyển ít nhất hai mục con thành Heading 2.",
+        "Giữ cụm 'Bao cao nhom du an giao duc' trong tài liệu.",
+      ],
+      checks: [
+        { id: "main-heading", label: "Có Heading 1", type: "heading", value: "h2" },
+        { id: "sub-heading", label: "Có Heading 2", type: "heading", value: "h3" },
+        { id: "report-title", label: "Giữ tên báo cáo", type: "contains", value: "Bao cao nhom du an giao duc" },
+      ],
+    },
   },
   {
     id: "page-number-section-break",
@@ -348,6 +380,22 @@ export const lessons: Lesson[] = [
         selfCheck: ["Bảng không tràn trang", "Checkbox đều hàng", "PDF không lỗi font", "Phần ký tên không sát mép giấy"],
       },
     ],
+    lab: {
+      title: "",
+      brief: "Tập dựng một phụ lục khảo sát bằng bảng, danh sách và nội dung dễ đọc.",
+      initialContent:
+        "<p>Phu luc 1: Phieu khao sat sinh vien</p><p>Hay tao bang gom cac cot: Cau hoi, Lua chon, Ghi chu.</p><p>Noi dung can co it nhat hai cau hoi ve viec hoc Word.</p>",
+      instructions: [
+        "Tạo một bảng để chứa câu hỏi khảo sát.",
+        "Thêm danh sách bullet hoặc numbered list cho các lựa chọn.",
+        "Giữ cụm 'Phieu khao sat sinh vien' trong tài liệu.",
+      ],
+      checks: [
+        { id: "survey-table", label: "Có bảng khảo sát", type: "table" },
+        { id: "survey-list", label: "Có danh sách lựa chọn", type: "list" },
+        { id: "survey-title", label: "Giữ tiêu đề phiếu khảo sát", type: "contains", value: "Phieu khao sat sinh vien" },
+      ],
+    },
   },
   {
     id: "administrative-documents",
@@ -468,61 +516,37 @@ export const lessons: Lesson[] = [
   {
     id: "common-errors",
     group: "advanced",
-    title: "Bắt lỗi Word thường gặp",
-    subtitle: "Tra lỗi nhanh theo triệu chứng: font nhảy, tràn trang, ảnh chạy, bảng lệch, số trang sai, mục lục thiếu.",
-    minutes: 32,
+    title: "Soát lỗi và kiểm tra bố cục Word",
+    subtitle: "Bài tổng kết cuối lộ trình: đọc tài liệu như bản in, tìm lỗi bố cục, field, section, hình bảng và mục lục trước khi nộp.",
+    minutes: 24,
     difficulty: "Cần luyện",
-    outcome: "Nhận diện triệu chứng lỗi và chọn đúng nhóm lệnh khắc phục.",
-    checkpoints: ["Clear Formatting", "Show/Hide", "Wrap Text", "Table Properties", "Ctrl A F9"],
+    outcome: "Biết quy trình soát lại file Word theo đúng tinh thần PDF: không chỉ sửa chính tả, mà kiểm tra cả cách hiển thị trên trang in.",
+    checkpoints: ["Review", "Navigation Pane", "Print Preview", "Update Field", "Section Break"],
     steps: [
-      "Khi font nhảy hoặc copy lỗi, dùng Clear All Formatting hoặc Paste Special > Keep Text Only.",
-      "Khi in lệch, kiểm tra Layout > Margins > Custom Margins và Layout > Size > A4.",
-      "Khi nội dung tràn trang, bật Home > ¶ để kiểm tra Enter dư, Page Break và Section Break.",
-      "Khi Header/Footer không đồng đều, kiểm tra section và bỏ Link to Previous.",
-      "Khi ảnh chạy lung tung, chỉnh Picture Format > Wrap Text và Fix Position on Page nếu cần.",
-      "Khi file nặng, chọn ảnh > Compress Pictures, tick Delete cropped areas of pictures.",
-      "Khi bảng lệch, dùng Table Layout > Properties, Distribute Rows/Columns và Alignment.",
-      "Khi mục lục/số trang sai, dùng Update Table hoặc Ctrl + A > F9 để cập nhật field.",
+      "Bắt đầu bằng tab Review > Spelling & Grammar để xử lý lỗi chính tả và ngữ pháp cơ bản.",
+      "Mở Navigation Pane để xem cấu trúc Heading; nếu mục lục thiếu mục, thường là do tiêu đề chưa được áp dụng Heading đúng cấp.",
+      "Kiểm tra lại số trang, mục lục, danh mục hình, danh mục bảng, caption và cross-reference vì đây đều là field có thể cần Update Field.",
+      "Chuyển sang File > Print hoặc Print Preview để nhìn tài liệu như bản nộp thật; nhiều lỗi lệch lề, tràn trang, bảng vượt lề chỉ lộ ra ở bước này.",
+      "Bật ký tự ẩn bằng Home > ¶ nếu thấy trang trống, khoảng trống lạ, số trang sai hoặc nội dung bị đẩy sang trang khác.",
+      "Kiểm tra Section Break trước khi sửa header, footer, số trang bìa, mục lục và nội dung chính; không nên xóa break theo cảm tính.",
+      "Với hình và bảng, kiểm tra Wrap Text, kích thước, caption và thứ tự đánh số; nếu thêm hoặc xóa đối tượng thì cập nhật lại field.",
+      "Với bảng khảo sát, phụ lục hoặc biểu mẫu, đọc lại độ rộng cột, căn lề ô, dòng bị tách trang và khả năng người đọc biết chỗ nào cần trả lời.",
     ],
     tips: [
-      "Đừng sửa bằng cảm giác. Hãy nhìn triệu chứng rồi đi đúng nhóm công cụ.",
-      "Bật ký tự ẩn là bước chẩn đoán quan trọng nhất khi trang bị tràn hoặc số trang sai.",
+      "PDF nhấn mạnh rằng nhiều lỗi không nằm ở chữ, mà nằm ở bố cục; vì vậy phải xem cả nội dung lẫn cách hiển thị trên trang in.",
+      "Tài liệu dài nên nhập nguồn, dùng Heading, caption và section từ đầu; làm thủ công về cuối sẽ rất dễ sót và tốn thời gian sửa lại.",
+      "Trang bìa, phụ lục, phần nhận xét và bảng câu hỏi cần gọn, có khoảng trống hợp lý, không làm rối mắt người đọc.",
     ],
     mistakes: [
-      "Dùng Space để căn ảnh, bảng hoặc số trang.",
-      "Xóa nhầm Section Break làm header/footer phía sau đổi theo.",
-      "Chèn lại mục lục thủ công thay vì cập nhật field.",
+      "Chỉ sửa chính tả mà bỏ qua Print Preview.",
+      "Gõ mục lục, danh mục hình, danh mục bảng bằng tay thay vì dùng Heading, Caption và Update Field.",
+      "Dùng Enter hoặc Space để đẩy nội dung, căn bảng, tách bìa hoặc tạo khoảng trống.",
+      "Xóa Section Break mà không hiểu nó đang điều khiển header, footer hay số trang nào.",
     ],
-    quickCommands: [
-      { label: "Hiện ký tự ẩn", value: "Home > ¶ hoặc Ctrl + Shift + 8", note: "Tìm Enter dư, break, tab." },
-      { label: "Cập nhật toàn bộ field", value: "Ctrl + A > F9", note: "Sửa mục lục, số hình, cross-reference." },
-      { label: "Nén ảnh", value: "Picture Format > Compress Pictures", note: "Giảm dung lượng file." },
-      { label: "Xóa số trang", value: "Insert > Page Number > Remove Page Numbers", note: "Làm lại khi số trang bị lặp." },
-    ],
-    miniQuiz: [
-      { question: "Copy từ Internet làm lỗi định dạng, xử lý nhanh bằng gì?", answer: "Paste Special > Keep Text Only hoặc Clear All Formatting." },
-      { question: "Nội dung tràn trang bất thường nên bật gì?", answer: "Show/Hide ¶ để kiểm tra Enter dư và Break." },
-      { question: "Ảnh che chữ thì kiểm tra nhóm nào?", answer: "Picture Format > Wrap Text và Arrange." },
-      { question: "Mục lục thiếu tiêu đề vì lý do phổ biến nào?", answer: "Tiêu đề chưa được áp dụng Heading." },
-      { question: "Số trang sai sau khi chỉnh bài, cập nhật toàn bộ bằng gì?", answer: "Ctrl + A rồi F9." },
-      { question: "Bảng không đều hàng/cột dùng lệnh nào?", answer: "Table Layout > Distribute Rows hoặc Distribute Columns." },
-    ],
-    examples: [
-      {
-        title: "Ví dụ: bảng tràn khỏi trang",
-        brief: "Một bảng khảo sát 6 cột bị vượt lề phải.",
-        sample: "Cột: STT, Họ tên, Lớp, Mức độ hài lòng, Ghi chú, Minh chứng.",
-        expected: ["Table AutoFit hoặc Properties", "Có thể chuyển trang sang Landscape", "Cột chia đều và không vượt lề"],
-      },
-    ],
-    exercises: [
-      {
-        title: "Exercise test: chẩn đoán 5 lỗi",
-        prompt: "Tự tạo một file có font lẫn lộn, Enter dư, ảnh che chữ, bảng lệch và mục lục thiếu tiêu đề.",
-        tasks: ["Sửa font bằng Keep Text Only/Clear Formatting", "Bật ¶ và xóa Enter dư", "Sửa Wrap Text ảnh", "Căn bảng bằng Table Properties", "Áp Heading rồi Update Table"],
-        selfCheck: ["Không sửa bằng Space", "Biết nêu nguyên nhân từng lỗi", "Sau Ctrl + A > F9, field cập nhật đúng"],
-      },
-    ],
+    quickCommands: [],
+    miniQuiz: [],
+    examples: [],
+    exercises: [],
   },
   {
     id: "mail-merge",
@@ -667,73 +691,4 @@ export const shortcuts: Shortcut[] = [
   { keys: "2610 + Alt + X", action: "Tạo checkbox rỗng", category: "Nâng cao" },
   { keys: "2611 + Alt + X", action: "Tạo checkbox có tick", category: "Nâng cao" },
   { keys: "--- + Enter", action: "Tạo đường kẻ ngang mảnh", category: "Nâng cao" },
-];
-
-export const commonErrors: CommonError[] = [
-  {
-    title: "Font chữ bị nhảy lung tung",
-    symptoms: "Các đoạn dùng font, cỡ chữ hoặc khoảng cách khác nhau sau khi copy từ Internet.",
-    fix: "Dùng Clear All Formatting hoặc Paste Special > Keep Text Only, sau đó áp lại Normal Style và Paragraph chuẩn.",
-    tags: ["font", "nhảy font", "copy", "internet", "clear formatting"],
-  },
-  {
-    title: "Văn bản in ra bị lệch",
-    symptoms: "Lề không đúng, nội dung sát mép giấy hoặc trang in không giống màn hình.",
-    fix: "Vào Layout > Margins > Custom Margins, đặt Top 2cm, Bottom 2cm, Left 3cm, Right 2cm; kiểm tra Layout > Size > A4 và File > Print.",
-    tags: ["lệch", "lề", "in", "a4", "print preview"],
-  },
-  {
-    title: "Nội dung tràn sang trang khác",
-    symptoms: "Đoạn văn bị rơi trang, có nhiều khoảng trắng hoặc trang trống lạ.",
-    fix: "Bật Home > ¶, xóa Enter dư, dùng Page Break hoặc Section Break đúng cách và kiểm tra Spacing Before/After.",
-    tags: ["tràn trang", "enter dư", "page break", "section break", "spacing"],
-  },
-  {
-    title: "Header/Footer không đồng đều",
-    symptoms: "Đầu trang hoặc chân trang của các phần không giống mong muốn.",
-    fix: "Bật ¶ để xem Section Break, mở Header/Footer và bỏ Link to Previous ở section cần chỉnh riêng.",
-    tags: ["header", "footer", "section", "link to previous"],
-  },
-  {
-    title: "Hình ảnh chạy lung tung hoặc che chữ",
-    symptoms: "Ảnh đẩy chữ, che nội dung hoặc không kéo được đúng vị trí.",
-    fix: "Chọn ảnh > Picture Format > Wrap Text, dùng Square, Tight, Behind Text, In Front of Text hoặc Top and Bottom tùy mục đích.",
-    tags: ["ảnh", "wrap text", "che chữ", "picture"],
-  },
-  {
-    title: "File Word nặng bất thường",
-    symptoms: "File mở chậm, gửi khó, dung lượng lớn do ảnh.",
-    fix: "Chọn ảnh > Picture Format > Compress Pictures, chọn 96ppi cho email hoặc 220ppi cho in, tick Delete cropped areas of pictures.",
-    tags: ["file nặng", "nén ảnh", "compress pictures"],
-  },
-  {
-    title: "Bảng bị lệch hoặc không đều hàng/cột",
-    symptoms: "Bảng vượt lề, hàng/cột không đều hoặc nội dung trong ô không căn giữa.",
-    fix: "Chọn bảng > Table Layout > Properties để căn Left/Center/Right; dùng Distribute Rows/Columns và Table Layout > Alignment.",
-    tags: ["bảng", "lệch bảng", "distribute", "alignment"],
-  },
-  {
-    title: "Bảng chạy sang trang khác",
-    symptoms: "Một hàng bảng bị tách kỳ lạ hoặc bảng không nằm gọn trên trang.",
-    fix: "Vào Table Properties > Row, tick Allow row to break across pages nếu cần; hoặc Paragraph > Line and Page Breaks > Keep with next.",
-    tags: ["bảng", "qua trang", "keep with next", "row"],
-  },
-  {
-    title: "Số trang không bắt đầu từ trang mong muốn",
-    symptoms: "Trang bìa có số, nội dung chính không bắt đầu từ 1 hoặc số trang lặp.",
-    fix: "Tạo Layout > Breaks > Next Page, bỏ Link to Previous, vào Format Page Numbers > Start at: 1; nếu lặp, Remove Page Numbers rồi chèn lại.",
-    tags: ["số trang", "start at", "different first page", "link previous"],
-  },
-  {
-    title: "Mục lục thiếu tiêu đề hoặc số trang sai",
-    symptoms: "Một vài mục không hiện trong mục lục hoặc số trang không khớp.",
-    fix: "Áp Heading 1/2/3 cho tiêu đề, chọn References > Update Table; nếu cần cập nhật toàn bộ field, dùng Ctrl + A > F9.",
-    tags: ["mục lục", "heading", "toc", "update table", "f9"],
-  },
-  {
-    title: "Mail Merge không nhận đúng cột",
-    symptoms: "Field bị thiếu, dữ liệu lệch hoặc preview trống.",
-    fix: "Dọn nguồn dữ liệu: hàng đầu là header, không gộp ô, không dòng trống đầu bảng; chọn lại Select Recipients.",
-    tags: ["mail merge", "excel", "field", "trộn thư"],
-  },
 ];
