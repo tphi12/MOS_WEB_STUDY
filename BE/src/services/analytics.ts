@@ -44,19 +44,23 @@ export async function getStudentPersonalization(studentId: string) {
     student: analytics.student,
     readiness: passReady ? "exam-ready" : "needs-practice",
     mosScore: analytics.summary.latestMosScore,
+    summary: analytics.summary,
+    domainMastery: analytics.domainMastery,
+    skillMastery: analytics.skillMastery,
+    latestAttempt: analytics.latestAttempt,
     recommendedLessonId,
     reason:
       weakSkills.length > 0
-        ? `He thong phat hien ky nang ${nextFocus} con yeu, nen uu tien on lai bai lien quan truoc khi lam de tiep.`
-        : "Ket qua hien tai on dinh, nen tiep tuc bai ke tiep va lam them de dong de giu nhip luyen tap.",
+        ? `Hệ thống phát hiện kỹ năng ${nextFocus} còn yếu, nên ưu tiên ôn lại bài liên quan trước khi làm đề tiếp.`
+        : "Kết quả hiện tại ổn định, nên tiếp tục bài kế tiếp và làm thêm đề đồng bộ để giữ nhịp luyện tập.",
     weakSkills,
     recommendations: analytics.recommendations,
     nextActions: buildNextActions(weakSkills, passReady),
     focusPlan: buildFocusPlan(weakSkills, recommendedLessonId),
     learningRules: [
-      "Hoan thanh checklist bai hoc de mo khoa goi y tiep theo.",
-      "Neu trac nghiem duoi 80%, he thong giu hoc vien o bai hien tai de on lai.",
-      "Neu mot skill tag sai nhieu lan, lo trinh uu tien bai hoc lien quan skill do.",
+      "Hoàn thành checklist bài học để mở khóa gợi ý tiếp theo.",
+      "Nếu trắc nghiệm dưới 80%, hệ thống giữ học viên ở bài hiện tại để ôn lại.",
+      "Nếu một skill tag sai nhiều lần, lộ trình ưu tiên bài học liên quan skill đó.",
     ],
   };
 }
@@ -156,7 +160,7 @@ function buildRecommendations(mastery: Mastery[]) {
     return [
       {
         priority: "maintenance",
-        message: "Ban dang dat muc on. Hay lam them de thi dong de giu toc do va do chinh xac.",
+        message: "Bạn đang đạt mức ổn. Hãy làm thêm đề thi đồng bộ để giữ tốc độ và độ chính xác.",
         skillTags: [],
       },
     ];
@@ -164,7 +168,7 @@ function buildRecommendations(mastery: Mastery[]) {
 
   return weakSkills.map((skill) => ({
     priority: skill.masteryPercent < 50 ? "urgent" : "practice",
-    message: `Ky nang ${skill.skillTag} dang o ${skill.masteryPercent}%. Nen on lai lesson lien quan va lam them 5 cau tagged ${skill.skillTag}.`,
+    message: `Kỹ năng ${skill.skillTag} đang ở ${skill.masteryPercent}%. Nên ôn lại lesson liên quan và làm thêm 5 câu tagged ${skill.skillTag}.`,
     skillTags: [skill.skillTag],
   }));
 }
@@ -172,16 +176,16 @@ function buildRecommendations(mastery: Mastery[]) {
 function buildNextActions(weakSkills: Mastery[], passReady: boolean) {
   if (passReady && weakSkills.length === 0) {
     return [
-      "Lam them mot de mock day du thoi gian de giu nhip.",
-      "On lai cac thao tac de mat diem: cap nhat field, section break, review.",
-      "Tu cham lai toc do thao tac truoc ngay thi.",
+      "Làm thêm một đề mock đầy đủ thời gian để giữ nhịp.",
+      "Ôn lại các thao tác dễ mất điểm: cập nhật field, section break, review.",
+      "Tự chấm lại tốc độ thao tác trước ngày thi.",
     ];
   }
 
   return [
-    `On lai lesson gan voi skill ${weakSkills[0]?.skillTag ?? "page-setup"}.`,
-    "Lam 5 cau luyen tap dung skill yeu truoc khi lam de moi.",
-    "Sau khi dat toi thieu 80%, chuyen sang mock test du thoi gian.",
+    `Ôn lại lesson gắn với skill ${weakSkills[0]?.skillTag ?? "page-setup"}.`,
+    "Làm 5 câu luyện tập đúng skill yếu trước khi làm đề mới.",
+    "Sau khi đạt tối thiểu 80%, chuyển sang mock test đủ thời gian.",
   ];
 }
 
@@ -272,9 +276,9 @@ function getRetentionAlerts(users: User[], attempts: ExamAttempt[]) {
         lowScoreStreak,
         alert:
           inactiveDays >= 7
-            ? "Khong dang nhap tu 7 ngay tro len"
+            ? "Không đăng nhập từ 7 ngày trở lên"
             : lowScoreStreak
-              ? "Nhieu lan thi thu duoi 500 diem"
+              ? "Nhiều lần thi thử dưới 500 điểm"
               : "",
       };
     })

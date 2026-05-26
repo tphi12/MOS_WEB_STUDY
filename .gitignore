@@ -1,4 +1,5 @@
 node_modules/
 dist/
-*.tsbuildinfo
+*.tsbuildinfo   
 FE/mos-hub-*.png
+/*.log

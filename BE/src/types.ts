@@ -17,6 +17,7 @@ export type User = {
   role: Role;
   name: string;
   email: string;
+  passwordHash?: string;
   lastLoginAt: string;
 };
 
@@ -28,6 +29,7 @@ export type Question = {
   difficulty: Difficulty;
   title: string;
   prompt: string;
+  options?: string[];
   expectedAnswer: string | string[];
   estimatedSeconds: number;
   points: number;
@@ -36,10 +38,13 @@ export type Question = {
 export type ExamBlueprint = {
   id: string;
   name: string;
+  description?: string;
+  lessonId?: string;
   totalQuestions: number;
   durationMinutes: number;
   mosScaleMin: number;
   mosScaleMax: number;
+  questionTypes?: QuestionType[];
   domainMatrix: Array<{
     domain: MosDomain;
     percent: number;

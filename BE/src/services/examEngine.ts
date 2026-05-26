@@ -146,7 +146,11 @@ async function selectQuestionsByMatrix(blueprint: ExamBlueprint) {
     const count = Math.max(1, Math.round((row.percent / 100) * blueprint.totalQuestions));
     const pool = questions.filter(
       (question) =>
-        question.domain === row.domain && row.difficulties.includes(question.difficulty) && !selectedIds.has(question.id),
+        question.domain === row.domain &&
+        row.difficulties.includes(question.difficulty) &&
+        matchesBlueprintLesson(question, blueprint) &&
+        (!blueprint.questionTypes?.length || blueprint.questionTypes.includes(question.type)) &&
+        !selectedIds.has(question.id),
     );
     for (const question of shuffle(pool).slice(0, count)) {
       selected.push(question);
@@ -155,7 +159,14 @@ async function selectQuestionsByMatrix(blueprint: ExamBlueprint) {
   }
 
   if (selected.length < blueprint.totalQuestions) {
-    const fallback = shuffle(questions.filter((question) => !selectedIds.has(question.id)));
+    const fallback = shuffle(
+      questions.filter(
+        (question) =>
+          matchesBlueprintLesson(question, blueprint) &&
+          (!blueprint.questionTypes?.length || blueprint.questionTypes.includes(question.type)) &&
+          !selectedIds.has(question.id),
+      ),
+    );
     for (const question of fallback.slice(0, blueprint.totalQuestions - selected.length)) {
       selected.push(question);
       selectedIds.add(question.id);
@@ -163,6 +174,10 @@ async function selectQuestionsByMatrix(blueprint: ExamBlueprint) {
   }
 
   return shuffle(selected).slice(0, blueprint.totalQuestions);
+}
+
+function matchesBlueprintLesson(question: Question, blueprint: ExamBlueprint) {
+  return !blueprint.lessonId || question.id.startsWith(`mcq-${blueprint.lessonId}-`);
 }
 
 function isAnswerCorrect(question: Question, answer: string | string[]) {

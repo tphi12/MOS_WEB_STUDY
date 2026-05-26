@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { KeyboardEvent } from "react";
+import type { CSSProperties, KeyboardEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { CKEditor } from "@ckeditor/ckeditor5-react";
 import {
@@ -23,11 +23,17 @@ import {
   Filter,
   GraduationCap,
   Lightbulb,
+  Lock,
+  LogIn,
+  LogOut,
+  MessageCircle,
   Menu,
   Music,
+  Send,
   Search,
   Sparkles,
   Target,
+  UserPlus,
   X,
 } from "lucide-react";
 import { groupLabels, lessons, shortcuts } from "./data";
@@ -71,6 +77,38 @@ type ShortcutChallenge = {
 type PersonalizedPlan = {
   readiness: "exam-ready" | "needs-practice";
   mosScore: number;
+  source?: "backend" | "local";
+  localProgress?: {
+    activeLessonProgress: number;
+    activeQuizPercent: number;
+    startedLessons: number;
+    completedLessons: number;
+    totalLessons: number;
+  };
+  lessonProgress?: Array<{
+    lessonId: string;
+    title: string;
+    progress: number;
+    quizPercent: number;
+    scorePercent: number;
+  }>;
+  summary?: {
+    attempts: number;
+    averageMosScore: number;
+    bestMosScore: number;
+    latestMosScore: number;
+    passReady: boolean;
+  };
+  domainMastery?: Array<{ domain: string; masteryPercent: number; attempts: number }>;
+  skillMastery?: Array<{
+    skillTag: string;
+    attempts: number;
+    correct?: number;
+    avgSeconds?: number;
+    masteryPercent: number;
+    lastPracticedAt?: string;
+  }>;
+  latestAttempt?: ExamAttempt;
   recommendedLessonId: string;
   reason: string;
   weakSkills: Array<{ skillTag: string; masteryPercent: number; avgSeconds?: number }>;
@@ -84,6 +122,64 @@ type PersonalizedPlan = {
   };
   learningRules: string[];
 };
+
+type ExamBlueprint = {
+  id: string;
+  name: string;
+  description?: string;
+  lessonId?: string;
+  totalQuestions: number;
+  durationMinutes: number;
+};
+
+type ExamQuestion = {
+  id: string;
+  title: string;
+  prompt: string;
+  options?: string[];
+  estimatedSeconds: number;
+};
+
+type ExamAttempt = {
+  id: string;
+  blueprintId: string;
+  questionIds: string[];
+  mosScore: number;
+  rawScore: number;
+};
+
+type ExamResult = ExamAttempt & {
+  answers: Array<{ questionId: string; answer: string | string[]; isCorrect: boolean }>;
+  submittedAt?: string;
+};
+
+type AuthUser = {
+  id: string;
+  role: "student" | "admin";
+  name: string;
+  email: string;
+  lastLoginAt: string;
+};
+
+type ChatMessage = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  source?: "gemini" | "fallback";
+};
+
+type AssistantContext = {
+  route: string;
+  lessonTitle?: string;
+  lessonSubtitle?: string;
+  activeTestName?: string;
+  selectedQuestion?: string;
+  includePageContext?: boolean;
+  studentId?: string;
+};
+
+const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
+const AUTH_STORAGE_KEY = "mos-word-auth-user";
 
 const shortcutCategories: Array<Shortcut["category"] | "Tất cả"> = [
   "Tất cả",
@@ -137,6 +233,7 @@ export function App() {
   const [customSpotifyError, setCustomSpotifyError] = useState("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(() => readStoredUser());
 
   const activeLesson = orderedLessons.find((lesson) => lesson.id === activeLessonId) ?? orderedLessons[0];
   const activeIndex = orderedLessons.findIndex((lesson) => lesson.id === activeLesson.id);
@@ -161,6 +258,9 @@ export function App() {
   const recommendedLesson = lessons.find((lesson) => lesson.id === personalizedPlan.recommendedLessonId) ?? activeLesson;
   const availableSpotifyStations = customSpotifyStation ? [customSpotifyStation, ...spotifyStations] : spotifyStations;
   const activeSpotify = availableSpotifyStations.find((station) => station.id === activeSpotifyId) ?? availableSpotifyStations[0];
+  const isHomeRoute = location.pathname === "/";
+  const isLearnRoute = location.pathname === "/learn";
+  const isTestsRoute = location.pathname === "/tests";
   const isPersonalizeRoute = location.pathname === "/personalize";
 
   const searchResults = useMemo<SearchResult[]>(() => {
@@ -199,12 +299,27 @@ export function App() {
     shortcutCategory === "Tất cả" ? shortcuts : shortcuts.filter((shortcut) => shortcut.category === shortcutCategory);
 
   useEffect(() => {
-    const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
-    fetch(`${apiUrl}/api/students/u-student-1/personalization`)
+    if (!authUser) {
+      setRemotePlan(null);
+      return;
+    }
+
+    fetch(`${API_URL}/api/students/${authUser.id}/personalization`)
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error("Cannot load personalization"))))
       .then((data: PersonalizedPlan) => setRemotePlan(data))
       .catch(() => setRemotePlan(null));
-  }, []);
+  }, [authUser]);
+
+  function handleAuth(user: AuthUser) {
+    window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
+    setAuthUser(user);
+  }
+
+  function handleLogout() {
+    window.localStorage.removeItem(AUTH_STORAGE_KEY);
+    setAuthUser(null);
+    setRemotePlan(null);
+  }
 
   async function copyText(value: string, label: string) {
     await navigator.clipboard.writeText(value);
@@ -215,7 +330,7 @@ export function App() {
   function selectLesson(id: string) {
     setActiveLessonId(id);
     setMobileNavOpen(false);
-    navigate("/");
+    navigate("/learn");
     window.setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 0);
   }
 
@@ -266,7 +381,25 @@ export function App() {
             <strong>MOS Word</strong>
             <span>Learning Hub</span>
           </div>
+          <button className="sidebar-close mobile-only" onClick={() => setMobileNavOpen(false)} aria-label="Đóng menu">
+            <X size={18} />
+          </button>
         </div>
+
+        <Link className={`side-route-link ${isHomeRoute ? "active" : ""}`} to="/">
+          <GraduationCap size={17} />
+          <span>Tổng quan</span>
+        </Link>
+
+        <Link className={`side-route-link ${isLearnRoute ? "active" : ""}`} to="/learn">
+          <BookOpen size={17} />
+          <span>Bài học</span>
+        </Link>
+
+        <Link className={`side-route-link ${isTestsRoute ? "active" : ""}`} to="/tests">
+          <Clipboard size={17} />
+          <span>Làm test</span>
+        </Link>
 
         <Link className={`side-route-link ${isPersonalizeRoute ? "active" : ""}`} to="/personalize">
           <Sparkles size={17} />
@@ -309,8 +442,20 @@ export function App() {
             <kbd>Ctrl K</kbd>
           </div>
           <div className="study-streak">
-            <Sparkles size={16} />
-            <Link to="/personalize">Personalize</Link>
+            {authUser ? (
+              <>
+                <Sparkles size={16} />
+                <Link to="/personalize">{authUser.name}</Link>
+                <button onClick={handleLogout} aria-label="Đăng xuất">
+                  <LogOut size={16} />
+                </button>
+              </>
+            ) : (
+              <>
+                <LogIn size={16} />
+                <Link to="/tests">Đăng nhập</Link>
+              </>
+            )}
           </div>
         </header>
 
@@ -341,7 +486,11 @@ export function App() {
           </section>
         )}
 
-        {isPersonalizeRoute ? (
+        {isHomeRoute ? (
+          <LandingPage lessons={orderedLessons} authUser={authUser} selectLesson={selectLesson} />
+        ) : isTestsRoute ? (
+          <TestsPage lessons={orderedLessons} authUser={authUser} onAuth={handleAuth} onPersonalizationUpdated={setRemotePlan} />
+        ) : isPersonalizeRoute ? (
           <PersonalizePage
             plan={personalizedPlan}
             recommendedLesson={recommendedLesson}
@@ -754,7 +903,478 @@ export function App() {
           </>
         )}
       </main>
+      <MosAssistantWidget
+        authUser={authUser}
+        context={{
+          route: location.pathname,
+          lessonTitle: activeLesson.title,
+          lessonSubtitle: activeLesson.subtitle,
+          studentId: authUser?.id,
+        }}
+      />
     </div>
+  );
+}
+
+function LandingPage({
+  lessons,
+  authUser,
+  selectLesson,
+}: {
+  lessons: Lesson[];
+  authUser: AuthUser | null;
+  selectLesson: (id: string) => void;
+}) {
+  const totalMinutes = lessons.reduce((sum, lesson) => sum + lesson.minutes, 0);
+
+  return (
+    <section className="landing-page" aria-label="MOS Word landing page">
+      <div className="landing-hero">
+        <div className="landing-copy">
+          <span>MOS Word Learning Hub</span>
+          <h1>Học Word hiệu quả nhất.</h1>
+          <p> Trang web tự học MOS Word miễn phí, hiệu quả và chất lượng.</p>
+          <div className="landing-actions">
+            <button onClick={() => selectLesson(lessons[0].id)}>Học ngay</button>
+            <Link to="/tests">{authUser ? "Vào phòng test" : "Đăng nhập làm test"}</Link>
+          </div>
+        </div>
+        <div className="landing-proof" aria-label="Tổng quan hệ thống">
+          <div>
+            <strong>{lessons.length}</strong>
+            <small>bài học</small>
+          </div>
+          <div>
+            <strong>20</strong>
+            <small>câu mỗi phần</small>
+          </div>
+          <div>
+            <strong>50</strong>
+            <small>câu cuối khóa</small>
+          </div>
+        </div>
+      </div>
+
+      <div className="home-choice-grid">
+        <article className="home-choice">
+          <BookOpen size={28} />
+          <span>Bài học</span>
+          <h2>{lessons.length} bài học MOS Word</h2>
+          <div className="home-metrics">
+            <strong>{totalMinutes} phút</strong>
+          </div>
+          <button onClick={() => selectLesson(lessons[0].id)}>Mở bài học</button>
+        </article>
+
+        <article className="home-choice test-choice">
+          <Clipboard size={28} />
+          <span>Làm test</span>
+          <h2>20 câu mỗi phần, 50 câu cuối khóa</h2>
+          <div className="home-metrics">
+            <strong>12 bài test</strong>
+          </div>
+          <Link to="/tests">Mở test</Link>
+        </article>
+      </div>
+    </section>
+  );
+}
+
+function MosAssistantWidget({ authUser, context }: { authUser: AuthUser | null; context: AssistantContext }) {
+  const [open, setOpen] = useState(false);
+  const [includeContext, setIncludeContext] = useState(true);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    {
+      id: "welcome",
+      role: "assistant",
+      text: "Chào bạn, mình là siêu trợ lý AI MOS. Mọi thông tin bạn hãy hỏi mình nhé.",
+    },
+  ]);
+
+  async function sendMessage() {
+    const text = input.trim();
+    if (!text || loading) return;
+
+    const userMessage: ChatMessage = { id: `u-${Date.now()}`, role: "user", text };
+    setMessages((current) => [...current, userMessage]);
+    setInput("");
+    setLoading(true);
+
+    try {
+      const response = await fetch(`${API_URL}/api/assistant/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          history: messages
+            .filter((message) => message.id !== "welcome")
+            .slice(-12)
+            .map((message) => ({ role: message.role, text: message.text })),
+          context: includeContext
+            ? {
+                ...context,
+                includePageContext: true,
+                studentId: authUser?.id,
+              }
+            : { route: context.route, studentId: authUser?.id },
+        }),
+      });
+      if (!response.ok) throw new Error("Cannot ask assistant");
+      const data = (await response.json()) as { answer: string; source?: "gemini" | "fallback" };
+      setMessages((current) => [
+        ...current,
+        { id: `a-${Date.now()}`, role: "assistant", text: data.answer, source: data.source },
+      ]);
+    } catch {
+      setMessages((current) => [
+        ...current,
+        {
+          id: `a-${Date.now()}`,
+          role: "assistant",
+          text: "Trợ lý đang bận một chút. Bạn thử hỏi lại sau nhé.",
+          source: "fallback",
+        },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleChatKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      void sendMessage();
+    }
+  }
+
+  return (
+    <div className={`assistant-widget ${open ? "open" : ""}`}>
+      {open && (
+        <section className="assistant-panel" aria-label="Trợ lý AI MOS Word">
+          <header>
+            <div>
+              <span>MOS Word Master</span>
+              <strong>Trợ lý AI MOS Word</strong>
+            </div>
+            <button onClick={() => setOpen(false)} aria-label="Đóng trợ lý">
+              <X size={18} />
+            </button>
+          </header>
+
+          <div className="assistant-context">
+            <label>
+              <input type="checkbox" checked={includeContext} onChange={(event) => setIncludeContext(event.target.checked)} />
+              Gửi ngữ cảnh bài hiện tại
+            </label>
+            <small>{context.lessonTitle ?? "MOS Word"}</small>
+          </div>
+
+          <div className="assistant-messages">
+            {messages.map((message) => (
+              <article key={message.id} className={message.role}>
+                <p>{message.text}</p>
+                {message.source === "fallback" && <span>local fallback</span>}
+              </article>
+            ))}
+            {loading && (
+              <article className="assistant">
+                <p>Đang suy nghĩ...</p>
+              </article>
+            )}
+          </div>
+
+          <div className="assistant-input">
+            <textarea
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              onKeyDown={handleChatKeyDown}
+              placeholder="Hỏi: tạo mục lục, chỉnh lề, section break..."
+              rows={2}
+            />
+            <button onClick={sendMessage} disabled={loading || !input.trim()} aria-label="Gửi câu hỏi">
+              <Send size={17} />
+            </button>
+          </div>
+        </section>
+      )}
+
+      <button className="assistant-fab" onClick={() => setOpen((current) => !current)} aria-label="Mở trợ lý AI MOS Word">
+        <MessageCircle size={24} />
+      </button>
+    </div>
+  );
+}
+
+function TestsPage({
+  lessons,
+  authUser,
+  onAuth,
+  onPersonalizationUpdated,
+}: {
+  lessons: Lesson[];
+  authUser: AuthUser | null;
+  onAuth: (user: AuthUser) => void;
+  onPersonalizationUpdated: (plan: PersonalizedPlan | null) => void;
+}) {
+  const [blueprints, setBlueprints] = useState<ExamBlueprint[]>([]);
+  const [selectedBlueprintId, setSelectedBlueprintId] = useState("");
+  const [attempt, setAttempt] = useState<ExamAttempt | null>(null);
+  const [questions, setQuestions] = useState<ExamQuestion[]>([]);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [result, setResult] = useState<ExamResult | null>(null);
+  const [attemptStartedAt, setAttemptStartedAt] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const selectedBlueprint = blueprints.find((blueprint) => blueprint.id === selectedBlueprintId);
+  const answeredCount = questions.filter((question) => answers[question.id]).length;
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/exam-blueprints`)
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error("Cannot load tests"))))
+      .then((data: ExamBlueprint[]) => {
+        const sorted = [...data].sort((left, right) => Number(left.totalQuestions === 50) - Number(right.totalQuestions === 50));
+        setBlueprints(sorted);
+        setSelectedBlueprintId(sorted[0]?.id ?? "");
+      })
+      .catch(() => setError("Không tải được danh sách test từ backend."));
+  }, []);
+
+  async function startTest(blueprintId = selectedBlueprintId) {
+    if (!authUser) return;
+    if (!blueprintId) return;
+    setLoading(true);
+    setError("");
+    setResult(null);
+    setAnswers({});
+    try {
+      const response = await fetch(`${API_URL}/api/exam-blueprints/${blueprintId}/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studentId: authUser.id }),
+      });
+      if (!response.ok) throw new Error("Cannot start test");
+      const data = (await response.json()) as { attempt: ExamAttempt; questions: ExamQuestion[] };
+      setAttempt(data.attempt);
+      setAttemptStartedAt(Date.now());
+      setQuestions(data.questions.filter((question) => question.options?.length));
+    } catch {
+      setError("Không bắt đầu được bài test. Hãy kiểm tra backend và dữ liệu seed.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function submitTest() {
+    if (!attempt || !authUser) return;
+    setLoading(true);
+    setError("");
+    try {
+      const elapsedSeconds = Math.max(10, Math.round((Date.now() - (attemptStartedAt ?? Date.now())) / 1000));
+      const response = await fetch(`${API_URL}/api/attempts/${attempt.id}/submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          answers: questions.map((question) => ({
+            questionId: question.id,
+            answer: answers[question.id] ?? "",
+            elapsedSeconds: elapsedSeconds || question.estimatedSeconds,
+          })),
+        }),
+      });
+      if (!response.ok) throw new Error("Cannot submit test");
+      const submitted = (await response.json()) as ExamResult;
+      setResult(submitted);
+      const planResponse = await fetch(`${API_URL}/api/students/${authUser.id}/personalization`);
+      if (planResponse.ok) onPersonalizationUpdated((await planResponse.json()) as PersonalizedPlan);
+    } catch {
+      setError("Không nộp được bài test. Hãy thử lại sau khi backend sẵn sàng.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <section className="tests-page" aria-label="Làm test">
+      <div className="tests-hero">
+        <div>
+          <p className="eyebrow">Test multiple-choice</p>
+        </div>
+        <div className="score-dial">
+          <strong>{selectedBlueprint?.totalQuestions ?? 0}</strong>
+          <small>câu hỏi</small>
+        </div>
+      </div>
+
+      {error && <p className="test-error">{error}</p>}
+
+      {!authUser && <AuthPanel onAuth={onAuth} />}
+
+      <div className="test-layout">
+        <aside className="test-picker">
+          <strong>Danh sách test</strong>
+          {blueprints.map((blueprint) => {
+            const lesson = lessons.find((item) => item.id === blueprint.lessonId);
+            return (
+              <button
+                key={blueprint.id}
+                className={blueprint.id === selectedBlueprintId ? "active" : ""}
+                onClick={() => {
+                  setSelectedBlueprintId(blueprint.id);
+                  setAttempt(null);
+                  setAttemptStartedAt(null);
+                  setQuestions([]);
+                  setResult(null);
+                  setAnswers({});
+                }}
+              >
+                <span>{blueprint.totalQuestions === 50 ? "Cuối khóa" : "Học phần"}</span>
+                <strong>{lesson?.title ?? blueprint.name}</strong>
+                <small>{blueprint.totalQuestions} câu · {blueprint.durationMinutes} phút</small>
+              </button>
+            );
+          })}
+        </aside>
+
+        <main className={`test-workspace ${!authUser ? "locked" : ""}`}>
+          <div className="test-toolbar">
+            <div>
+              <strong>{selectedBlueprint?.name ?? "Chọn bài test"}</strong>
+              <span>
+                {authUser
+                  ? `${answeredCount}/${questions.length || selectedBlueprint?.totalQuestions || 0} câu đã trả lời`
+                  : "Đăng nhập hoặc đăng ký để bắt đầu test"}
+              </span>
+            </div>
+            <button onClick={() => startTest()} disabled={!authUser || !selectedBlueprintId || loading}>
+              {attempt ? "Làm lại" : "Bắt đầu"}
+            </button>
+          </div>
+
+          {questions.length > 0 && (
+            <div className="backend-mcq-list">
+              {questions.map((question, index) => {
+                const submittedAnswer = result?.answers.find((answer) => answer.questionId === question.id);
+                return (
+                  <article key={question.id} className="mcq-item">
+                    <strong>Câu {index + 1}. {question.prompt}</strong>
+                    <div className="mcq-options">
+                      {question.options?.map((option) => {
+                        const selected = answers[question.id] === option;
+                        const className = submittedAnswer
+                          ? submittedAnswer.answer === option
+                            ? submittedAnswer.isCorrect
+                              ? "correct"
+                              : "wrong"
+                            : ""
+                          : selected
+                            ? "correct"
+                            : "";
+                        return (
+                          <button
+                            key={option}
+                            className={className}
+                            disabled={Boolean(result)}
+                            onClick={() => setAnswers((current) => ({ ...current, [question.id]: option }))}
+                          >
+                            {option}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+
+          {attempt && !result && questions.length > 0 && (
+            <button className="submit-test-button" onClick={submitTest} disabled={loading || answeredCount === 0}>
+              Nộp bài
+            </button>
+          )}
+
+          {result && (
+            <section className="test-result">
+              <CheckCircle2 size={22} />
+              <div>
+                <strong>MOS score: {result.mosScore}</strong>
+                <p>{result.answers.filter((answer) => answer.isCorrect).length}/{result.answers.length} câu đúng.</p>
+              </div>
+            </section>
+          )}
+        </main>
+      </div>
+    </section>
+  );
+}
+
+function AuthPanel({ onAuth }: { onAuth: (user: AuthUser) => void }) {
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("Nhập Email...");
+  const [password, setPassword] = useState("123");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submitAuth() {
+    setLoading(true);
+    setError("");
+    try {
+      const response = await fetch(`${API_URL}/api/auth/${mode}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(mode === "register" ? { name, email, password } : { email, password }),
+      });
+      if (!response.ok) throw new Error("Auth failed");
+      onAuth((await response.json()) as AuthUser);
+    } catch {
+      setError(mode === "register" ? "Không đăng ký được. Kiểm tra email hoặc mật khẩu." : "Email hoặc mật khẩu chưa đúng.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <section className="auth-panel" aria-label="Đăng nhập làm test">
+      <div>
+        <Lock size={24} />
+        <span>Tài khoản học viên</span>
+        <h2>{mode === "login" ? "Đăng nhập để làm test" : "Tạo tài khoản làm test"}</h2>
+      </div>
+
+      <div className="auth-form">
+        <div className="auth-tabs" role="tablist" aria-label="Chọn đăng nhập hoặc đăng ký">
+          <button className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>
+            <LogIn size={16} /> Đăng nhập
+          </button>
+          <button className={mode === "register" ? "active" : ""} onClick={() => setMode("register")}>
+            <UserPlus size={16} /> Đăng ký
+          </button>
+        </div>
+
+        {mode === "register" && (
+          <label>
+            Họ tên
+            <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Nguyễn Văn A" />
+          </label>
+        )}
+        <label>
+          Email
+          <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" placeholder="email@domain.com" />
+        </label>
+        <label>
+          Mật khẩu
+          <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" placeholder="Tối thiểu 6 ký tự" />
+        </label>
+        {error && <p className="auth-error">{error}</p>}
+        <button onClick={submitAuth} disabled={loading || !email || !password || (mode === "register" && !name)}>
+          {mode === "login" ? "Vào phòng test" : "Tạo tài khoản"}
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -779,6 +1399,28 @@ function PersonalizePage({
   const focusSkills = plan.focusPlan?.skillTags?.length
     ? plan.focusPlan.skillTags
     : plan.weakSkills.map((skill) => skill.skillTag);
+  const hasBackendAnalytics = plan.source !== "local" && Boolean(plan.summary);
+  const localReadiness = Math.round(
+    ((plan.localProgress?.activeLessonProgress ?? 0) + (plan.localProgress?.activeQuizPercent ?? 0)) / 2,
+  );
+  const displayedScore = hasBackendAnalytics ? plan.mosScore : localReadiness;
+  const scorePercent = hasBackendAnalytics ? clampPercent(Math.round((plan.mosScore / 1000) * 100)) : clampPercent(localReadiness);
+  const scoreStyle = { "--score-percent": `${scorePercent}%` } as CSSProperties;
+  const summaryStats = hasBackendAnalytics
+    ? [
+        { label: "Attempts", value: plan.summary?.attempts ?? 0 },
+        { label: "Avg MOS", value: plan.summary?.averageMosScore ?? plan.mosScore },
+        { label: "Best", value: plan.summary?.bestMosScore ?? plan.mosScore },
+        { label: "Latest", value: plan.summary?.latestMosScore ?? plan.mosScore },
+      ]
+    : [
+        { label: "Checklist", value: `${plan.localProgress?.activeLessonProgress ?? 0}%` },
+        { label: "Quiz", value: `${plan.localProgress?.activeQuizPercent ?? 0}%` },
+        { label: "Đã mở", value: plan.localProgress?.startedLessons ?? 0 },
+        { label: "Hoàn thành", value: `${plan.localProgress?.completedLessons ?? 0}/${plan.localProgress?.totalLessons ?? lessons.length}` },
+      ];
+  const progressRows = hasBackendAnalytics ? normalizeDomainRows(plan.domainMastery) : normalizeLessonProgressRows(plan.lessonProgress);
+  const skillRows = normalizeSkillRows(plan.skillMastery, plan.weakSkills);
 
   return (
     <section className="personalize-page" aria-label="Lộ trình cá nhân hóa">
@@ -789,17 +1431,59 @@ function PersonalizePage({
           <p>{plan.reason}</p>
           <div className="personalize-actions">
             <button onClick={() => selectLesson(recommendedLesson.id)}>Mở bài được gợi ý</button>
-            <Link to="/">Quay lại lớp học</Link>
+            <Link to="/learn">Quay lại lớp học</Link>
           </div>
         </div>
-        <div className="score-dial" aria-label={`MOS score ${plan.mosScore}`}>
-          <span>MOS score</span>
-          <strong>{plan.mosScore}</strong>
-          <small>{plan.readiness === "exam-ready" ? "Exam-ready" : "Needs practice"}</small>
+        <div className="score-donut-card" aria-label={hasBackendAnalytics ? `MOS score ${plan.mosScore}` : `Study readiness ${displayedScore}%`}>
+          <div className="score-donut" style={scoreStyle}>
+            <span>{hasBackendAnalytics ? displayedScore : `${displayedScore}%`}</span>
+          </div>
+          <div>
+            <strong>{hasBackendAnalytics ? "MOS score" : "Study readiness"}</strong>
+            <small>{hasBackendAnalytics ? (plan.readiness === "exam-ready" ? "Exam-ready" : "Needs practice") : "Chưa đăng nhập"}</small>
+          </div>
         </div>
       </div>
 
       <div className="personalize-grid">
+        <section className="personalize-section personalize-analytics">
+          <div className="section-heading">
+            <strong>{hasBackendAnalytics ? "Tổng quan từ bài test" : "Tạm tính từ bài học"}</strong>
+            <span>{hasBackendAnalytics ? "MOS Analytics" : "Local progress"}</span>
+          </div>
+          {!hasBackendAnalytics && (
+            <div className="personalize-login-note">
+              <Link to="/tests">Đăng nhập làm test</Link>
+            </div>
+          )}
+          <div className="stat-strip">
+            {summaryStats.map((stat) => (
+              <div key={stat.label}>
+                <span>{stat.label}</span>
+                <strong>{stat.value}</strong>
+              </div>
+            ))}
+          </div>
+          <div className="domain-chart" aria-label="Domain mastery chart">
+            {progressRows.length ? (
+              progressRows.map((row) => (
+                <div key={row.id} className="domain-bar-row">
+                  <div>
+                    <strong>{row.label}</strong>
+                    <small>{row.detail}</small>
+                  </div>
+                  <div className="domain-bar" aria-hidden="true">
+                    <span style={{ width: `${Math.max(4, row.percent)}%` }} />
+                  </div>
+                  <b>{row.percent}%</b>
+                </div>
+              ))
+            ) : (
+              <p className="muted">Làm test để hệ thống vẽ mastery theo từng phần MOS Word.</p>
+            )}
+          </div>
+        </section>
+
         <section className="personalize-section recommended-path">
           <div className="section-heading">
             <strong>Bài nên học tiếp</strong>
@@ -819,21 +1503,23 @@ function PersonalizePage({
           </div>
         </section>
 
-        <section className="personalize-section">
+        <section className="personalize-section skill-chart-panel">
           <div className="section-heading">
-            <strong>Skill yếu</strong>
+            <strong>{hasBackendAnalytics ? "Skill yếu" : "Skill gợi ý ôn"}</strong>
             <span>{focusSkills.length || 1} focus</span>
           </div>
-          <div className="skill-stack">
-            {plan.weakSkills.length ? (
-              plan.weakSkills.map((skill) => (
-                <div key={skill.skillTag} className="skill-focus-row">
+          <div className="skill-chart">
+            {skillRows.length ? (
+              skillRows.map((skill) => (
+                <div key={skill.skillTag} className="skill-chart-row">
                   <div>
                     <strong>{skill.skillTag}</strong>
                     <small>{skill.avgSeconds ? `${skill.avgSeconds}s trung bình` : "Cần luyện thêm"}</small>
                   </div>
-                  <span>{skill.masteryPercent}%</span>
-                  <b style={{ width: `${Math.max(8, skill.masteryPercent)}%` }} />
+                  <div className="skill-track" aria-hidden="true">
+                    <span style={{ width: `${Math.max(5, skill.masteryPercent)}%` }} />
+                  </div>
+                  <b>{skill.masteryPercent}%</b>
                 </div>
               ))
             ) : (
@@ -866,7 +1552,7 @@ function PersonalizePage({
 
         <section className="personalize-section recommendations-panel">
           <div className="section-heading">
-            <strong>Khuyến nghị từ backend</strong>
+            <strong>Khuyến nghị</strong>
           </div>
           {plan.recommendations.map((recommendation) => (
             <article key={`${recommendation.priority}-${recommendation.message}`}>
@@ -878,6 +1564,59 @@ function PersonalizePage({
       </div>
     </section>
   );
+}
+
+function clampPercent(value: number) {
+  return Math.max(0, Math.min(100, value));
+}
+
+function normalizeDomainRows(rows?: PersonalizedPlan["domainMastery"]) {
+  return [...(rows ?? [])]
+    .filter((row) => row.attempts > 0)
+    .sort((a, b) => a.masteryPercent - b.masteryPercent)
+    .slice(0, 6)
+    .map((row) => ({
+      id: row.domain,
+      label: formatDomainLabel(row.domain),
+      detail: `${row.attempts} câu đã làm`,
+      percent: row.masteryPercent,
+    }));
+}
+
+function normalizeLessonProgressRows(rows?: PersonalizedPlan["lessonProgress"]) {
+  return [...(rows ?? [])]
+    .sort((a, b) => a.scorePercent - b.scorePercent)
+    .slice(0, 6)
+    .map((row) => ({
+      id: row.lessonId,
+      label: row.title,
+      detail: `Checklist ${row.progress}% · quiz ${row.quizPercent}%`,
+      percent: row.scorePercent,
+    }));
+}
+
+function normalizeSkillRows(rows?: PersonalizedPlan["skillMastery"], fallback: PersonalizedPlan["weakSkills"] = []) {
+  const source = rows?.length
+    ? rows
+    : fallback.map((skill) => ({
+        ...skill,
+        attempts: 0,
+      }));
+
+  return [...source].sort((a, b) => a.masteryPercent - b.masteryPercent).slice(0, 6);
+}
+
+function formatDomainLabel(domain: string) {
+  const labels: Record<string, string> = {
+    manage_documents: "Manage documents",
+    insert_format_text: "Text & paragraphs",
+    manage_tables_lists: "Tables & lists",
+    references_graphics: "References & graphics",
+    collaboration: "Review & collaboration",
+    mail_merge: "Mail merge",
+  };
+
+  return labels[domain] ?? domain.replace(/[-_]/g, " ");
 }
 
 function WordLabPanel({ lab }: { lab: WordLab }) {
@@ -963,6 +1702,15 @@ function evaluateLabCheck(html: string, check: WordLabCheck) {
   if (check.type === "table") return Boolean(document.body.querySelector("table"));
   if (check.type === "list") return Boolean(document.body.querySelector("ul, ol"));
   return false;
+}
+
+function readStoredUser(): AuthUser | null {
+  try {
+    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as AuthUser) : null;
+  } catch {
+    return null;
+  }
 }
 
 function orderLessons(items: Lesson[]) {
@@ -1104,17 +1852,42 @@ function buildLocalPersonalizedPlan(
     progressByLesson[Math.min(progressByLesson.length - 1, progressByLesson.findIndex((item) => item.lesson.id === activeLessonId) + 1)] ??
     progressByLesson[0];
   const weakSkill = mapLessonToSkill(nextBlocked.lesson.id);
+  const completedLessons = progressByLesson.filter((item) => item.progress >= 80 && item.quizPercent >= 80).length;
+  const startedLessons = progressByLesson.filter((item) => item.progress > 0 || item.quizPercent > 0).length;
+  const lessonProgress = [
+    activeProgress,
+    nextBlocked,
+    ...progressByLesson.filter((item) => item.lesson.id !== activeProgress.lesson.id && item.lesson.id !== nextBlocked.lesson.id),
+  ]
+    .filter((item, index, array) => array.findIndex((candidate) => candidate.lesson.id === item.lesson.id) === index)
+    .slice(0, 6)
+    .map((item) => ({
+      lessonId: item.lesson.id,
+      title: item.lesson.title,
+      progress: item.progress,
+      quizPercent: item.quizPercent,
+      scorePercent: Math.round((item.progress + item.quizPercent) / 2),
+    }));
 
   return {
+    source: "local",
     readiness: activeProgress.progress >= 80 && activeProgress.quizPercent >= 80 ? "exam-ready" : "needs-practice",
-    mosScore: Math.round(100 + ((activeProgress.progress + activeProgress.quizPercent) / 200) * 900),
+    mosScore: Math.round((activeProgress.progress + activeProgress.quizPercent) / 2),
+    localProgress: {
+      activeLessonProgress: activeProgress.progress,
+      activeQuizPercent: activeProgress.quizPercent,
+      startedLessons,
+      completedLessons,
+      totalLessons: lessons.length,
+    },
+    lessonProgress,
     recommendedLessonId: nextBlocked.lesson.id,
     reason:
       activeProgress.progress < 80
-        ? "Bạn chưa hoàn thành đủ checklist của bài hiện tại, nên hệ thống ưu tiên giữ nhịp học ở bài này."
+        ? "Bạn chưa đăng nhập nên lộ trình đang tạm tính từ checklist và quiz trên máy này. Hãy hoàn thành bài hiện tại, rồi đăng nhập làm test để có phân tích chính xác."
         : activeProgress.quizPercent < 80
-          ? "Điểm kiểm tra của bài hiện tại chưa đạt ngưỡng 80%, nên hệ thống đề xuất ôn lại trước khi sang bài mới."
-          : "Bạn đang đi đúng nhịp. Hệ thống đề xuất bài kế tiếp trong lộ trình để tiếp tục mở rộng kỹ năng.",
+          ? "Quiz của bài hiện tại chưa đạt 80%. Đây là gợi ý tạm thời từ dữ liệu học local, chưa phải personalize từ bài test backend."
+          : "Bạn đang đi đúng nhịp học local. Đăng nhập và làm test sẽ mở biểu đồ mastery theo từng phần MOS Word.",
     weakSkills: [
       {
         skillTag: weakSkill,
@@ -1124,14 +1897,19 @@ function buildLocalPersonalizedPlan(
     recommendations: [
       {
         priority: "practice",
-        message: `Ôn lại ${weakSkill}, hoàn thành checklist và làm đúng tối thiểu 80% câu hỏi của bài.`,
+        message: `Ôn lại ${weakSkill}, hoàn thành checklist và làm đúng tối thiểu 80% câu hỏi của bài. Sau đó đăng nhập làm test để lưu dữ liệu personalize.`,
         skillTags: [weakSkill],
       },
     ],
+    nextActions: [
+      `Tiếp tục bài "${nextBlocked.lesson.title}" đến khi checklist và quiz đều đạt 80%.`,
+      "Đăng nhập hoặc đăng ký trước khi làm test để backend lưu kết quả.",
+      "Làm test theo phần 20 câu để mở biểu đồ mastery thật.",
+    ],
     learningRules: [
-      "Checklist dưới 80%: chưa nên chuyển bài.",
-      "Quiz dưới 80%: hệ thống đề xuất ôn lại lý thuyết và flashcard.",
-      "Khi đủ tiến độ và quiz, bài kế tiếp sẽ được ưu tiên.",
+      "Chưa đăng nhập: chỉ dùng dữ liệu học local, không xem là điểm MOS thật.",
+      "Sau khi làm test: backend dùng câu đúng/sai theo skill tag để cá nhân hóa.",
+      "Checklist và quiz vẫn giúp gợi ý bài nên học tiếp trong lúc chưa có attempt.",
     ],
   };
 }
