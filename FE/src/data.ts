@@ -1,9 +1,9 @@
 import type { Lesson, Shortcut } from "./types";
 
 export const groupLabels = {
-  research: "A. Học tập & nghiên cứu",
-  admin: "B. Hành chính & tổ chức",
-  advanced: "F. Word nâng cao",
+  research: "Học tập & nghiên cứu",
+  admin: "Hành chính & tổ chức",
+  advanced: "Word nâng cao",
 } as const;
 
 const academicExamples = {

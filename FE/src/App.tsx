@@ -353,7 +353,7 @@ export function App() {
         <section className="hero-panel">
           <div>
             <p className="eyebrow">Lộ trình tự học MOS Word</p>
-            <h1>Chung Khả Vy dễ thương.</h1>
+            <h1>Tự học cùng MOS Word.</h1>
             <div className="hero-actions">
               <a href="#lesson" className="primary-action">
                 Vào bài đang học
