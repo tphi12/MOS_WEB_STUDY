@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { CKEditor } from "@ckeditor/ckeditor5-react";
@@ -19,6 +19,7 @@ import {
   BookOpen,
   Brain,
   CheckCircle2,
+  Clock3,
   Clipboard,
   Filter,
   GraduationCap,
@@ -33,6 +34,7 @@ import {
   Search,
   Sparkles,
   Target,
+  RotateCcw,
   UserPlus,
   X,
 } from "lucide-react";
@@ -232,7 +234,6 @@ export function App() {
   const [customSpotifyStation, setCustomSpotifyStation] = useState<(typeof spotifyStations)[number] | null>(null);
   const [customSpotifyError, setCustomSpotifyError] = useState("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [copied, setCopied] = useState<string | null>(null);
   const [authUser, setAuthUser] = useState<AuthUser | null>(() => readStoredUser());
 
   const activeLesson = orderedLessons.find((lesson) => lesson.id === activeLessonId) ?? orderedLessons[0];
@@ -321,12 +322,6 @@ export function App() {
     setRemotePlan(null);
   }
 
-  async function copyText(value: string, label: string) {
-    await navigator.clipboard.writeText(value);
-    setCopied(label);
-    window.setTimeout(() => setCopied(null), 1500);
-  }
-
   function selectLesson(id: string) {
     setActiveLessonId(id);
     setMobileNavOpen(false);
@@ -378,8 +373,8 @@ export function App() {
         <div className="brand">
           <div className="brand-mark">W</div>
           <div>
-            <strong>MOS Word</strong>
-            <span>Learning Hub</span>
+            <strong>Wordie</strong>
+            <span>MOS Word</span>
           </div>
           <button className="sidebar-close mobile-only" onClick={() => setMobileNavOpen(false)} aria-label="Đóng menu">
             <X size={18} />
@@ -501,8 +496,8 @@ export function App() {
           <>
         <section className="hero-panel">
           <div>
-            <p className="eyebrow">Lộ trình tự học MOS Word</p>
-            <h1>Tự học cùng MOS Word.</h1>
+            <p className="eyebrow">Lộ trình tự học Wordie</p>
+            <h1>Tự học cùng Wordie.</h1>
             <div className="hero-actions">
               <a href="#lesson" className="primary-action">
                 Vào bài đang học
@@ -684,26 +679,6 @@ export function App() {
                 </div>
               </div>
             </section>
-
-            {activeLesson.quickCommands.length > 0 && (
-            <section className="learning-block">
-              <h3>Copy nhanh thông số</h3>
-              <div className="command-list">
-                {activeLesson.quickCommands.map((command) => (
-                  <div key={command.label} className="command-item">
-                    <div>
-                      <strong>{command.label}</strong>
-                      <code>{command.value}</code>
-                      <small>{command.note}</small>
-                    </div>
-                    <button onClick={() => copyText(command.value, command.label)}>
-                      <Clipboard size={16} /> {copied === command.label ? "Đã copy" : "Copy"}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </section>
-            )}
 
             {activeLesson.miniQuiz.length > 0 && (
             <section className="learning-block">
@@ -893,11 +868,6 @@ export function App() {
               </div>
             </section>
 
-            <section className="exam-note">
-              <GraduationCap size={20} />
-              <strong>Gợi ý học hiệu quả</strong>
-              <p>Học viên nên mở Word song song, hoàn thành checklist trước, sau đó lật flashcard để tự nói lại thao tác.</p>
-            </section>
           </aside>
         </div>
           </>
@@ -928,12 +898,12 @@ function LandingPage({
   const totalMinutes = lessons.reduce((sum, lesson) => sum + lesson.minutes, 0);
 
   return (
-    <section className="landing-page" aria-label="MOS Word landing page">
+    <section className="landing-page" aria-label="Wordie landing page">
       <div className="landing-hero">
         <div className="landing-copy">
-          <span>MOS Word Learning Hub</span>
+          <span>Wordie</span>
           <h1>Học Word hiệu quả nhất.</h1>
-          <p> Trang web tự học MOS Word miễn phí, hiệu quả và chất lượng.</p>
+          <p>Wordie giúp bạn tự học MOS Word miễn phí, hiệu quả và chất lượng.</p>
           <div className="landing-actions">
             <button onClick={() => selectLesson(lessons[0].id)}>Học ngay</button>
             <Link to="/tests">{authUser ? "Vào phòng test" : "Đăng nhập làm test"}</Link>
@@ -1119,17 +1089,20 @@ function TestsPage({
   onPersonalizationUpdated: (plan: PersonalizedPlan | null) => void;
 }) {
   const [blueprints, setBlueprints] = useState<ExamBlueprint[]>([]);
-  const [selectedBlueprintId, setSelectedBlueprintId] = useState("");
   const [attempt, setAttempt] = useState<ExamAttempt | null>(null);
   const [questions, setQuestions] = useState<ExamQuestion[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [result, setResult] = useState<ExamResult | null>(null);
   const [attemptStartedAt, setAttemptStartedAt] = useState<number | null>(null);
+  const [attemptHistory, setAttemptHistory] = useState<ExamResult[]>([]);
+  const [timeRemaining, setTimeRemaining] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const autoSubmittedAttemptId = useRef<string | null>(null);
 
-  const selectedBlueprint = blueprints.find((blueprint) => blueprint.id === selectedBlueprintId);
+  const activeBlueprint = blueprints.find((blueprint) => blueprint.id === attempt?.blueprintId);
   const answeredCount = questions.filter((question) => answers[question.id]).length;
+  const isTakingTest = Boolean(attempt && questions.length > 0 && !result);
 
   useEffect(() => {
     fetch(`${API_URL}/api/exam-blueprints`)
@@ -1137,18 +1110,55 @@ function TestsPage({
       .then((data: ExamBlueprint[]) => {
         const sorted = [...data].sort((left, right) => Number(left.totalQuestions === 50) - Number(right.totalQuestions === 50));
         setBlueprints(sorted);
-        setSelectedBlueprintId(sorted[0]?.id ?? "");
       })
       .catch(() => setError("Không tải được danh sách test từ backend."));
   }, []);
 
-  async function startTest(blueprintId = selectedBlueprintId) {
+  useEffect(() => {
+    if (!authUser) {
+      setAttemptHistory([]);
+      return;
+    }
+
+    loadAttemptHistory(authUser.id);
+  }, [authUser]);
+
+  useEffect(() => {
+    if (!isTakingTest) return;
+
+    const timer = window.setInterval(() => {
+      setTimeRemaining((current) => Math.max(0, current - 1));
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [isTakingTest]);
+
+  useEffect(() => {
+    if (!attempt || !isTakingTest || timeRemaining > 0 || loading || autoSubmittedAttemptId.current === attempt.id) return;
+    autoSubmittedAttemptId.current = attempt.id;
+    submitTest(true);
+  }, [attempt, isTakingTest, loading, timeRemaining]);
+
+  async function loadAttemptHistory(studentId: string) {
+    try {
+      const response = await fetch(`${API_URL}/api/students/${studentId}/attempts`);
+      if (!response.ok) throw new Error("Cannot load attempt history");
+      setAttemptHistory((await response.json()) as ExamResult[]);
+    } catch {
+      setAttemptHistory([]);
+    }
+  }
+
+  async function startTest(blueprintId: string) {
     if (!authUser) return;
     if (!blueprintId) return;
+    const blueprint = blueprints.find((item) => item.id === blueprintId);
     setLoading(true);
     setError("");
     setResult(null);
     setAnswers({});
+    setQuestions([]);
+    autoSubmittedAttemptId.current = null;
     try {
       const response = await fetch(`${API_URL}/api/exam-blueprints/${blueprintId}/start`, {
         method: "POST",
@@ -1159,6 +1169,7 @@ function TestsPage({
       const data = (await response.json()) as { attempt: ExamAttempt; questions: ExamQuestion[] };
       setAttempt(data.attempt);
       setAttemptStartedAt(Date.now());
+      setTimeRemaining(getTestDurationMinutes(blueprint) * 60);
       setQuestions(data.questions.filter((question) => question.options?.length));
     } catch {
       setError("Không bắt đầu được bài test. Hãy kiểm tra backend và dữ liệu seed.");
@@ -1167,7 +1178,7 @@ function TestsPage({
     }
   }
 
-  async function submitTest() {
+  async function submitTest(isAutoSubmit = false) {
     if (!attempt || !authUser) return;
     setLoading(true);
     setError("");
@@ -1187,126 +1198,153 @@ function TestsPage({
       if (!response.ok) throw new Error("Cannot submit test");
       const submitted = (await response.json()) as ExamResult;
       setResult(submitted);
+      setTimeRemaining(0);
+      setAttemptHistory((current) => [submitted, ...current]);
       const planResponse = await fetch(`${API_URL}/api/students/${authUser.id}/personalization`);
       if (planResponse.ok) onPersonalizationUpdated((await planResponse.json()) as PersonalizedPlan);
     } catch {
-      setError("Không nộp được bài test. Hãy thử lại sau khi backend sẵn sàng.");
+      setError(isAutoSubmit ? "Hết giờ nhưng chưa nộp được bài. Hãy bấm nộp lại khi backend sẵn sàng." : "Không nộp được bài test. Hãy thử lại sau khi backend sẵn sàng.");
     } finally {
       setLoading(false);
     }
   }
 
+  function exitResult() {
+    setAttempt(null);
+    setAttemptStartedAt(null);
+    setQuestions([]);
+    setAnswers({});
+    setResult(null);
+    setTimeRemaining(0);
+  }
+
   return (
     <section className="tests-page" aria-label="Làm test">
-      <div className="tests-hero">
-        <div>
-          <p className="eyebrow">Test multiple-choice</p>
-        </div>
-        <div className="score-dial">
-          <strong>{selectedBlueprint?.totalQuestions ?? 0}</strong>
-          <small>câu hỏi</small>
-        </div>
-      </div>
-
       {error && <p className="test-error">{error}</p>}
 
-      {!authUser && <AuthPanel onAuth={onAuth} />}
-
-      <div className="test-layout">
-        <aside className="test-picker">
-          <strong>Danh sách test</strong>
-          {blueprints.map((blueprint) => {
-            const lesson = lessons.find((item) => item.id === blueprint.lessonId);
-            return (
-              <button
-                key={blueprint.id}
-                className={blueprint.id === selectedBlueprintId ? "active" : ""}
-                onClick={() => {
-                  setSelectedBlueprintId(blueprint.id);
-                  setAttempt(null);
-                  setAttemptStartedAt(null);
-                  setQuestions([]);
-                  setResult(null);
-                  setAnswers({});
-                }}
-              >
-                <span>{blueprint.totalQuestions === 50 ? "Cuối khóa" : "Học phần"}</span>
-                <strong>{lesson?.title ?? blueprint.name}</strong>
-                <small>{blueprint.totalQuestions} câu · {blueprint.durationMinutes} phút</small>
-              </button>
-            );
-          })}
-        </aside>
-
-        <main className={`test-workspace ${!authUser ? "locked" : ""}`}>
-          <div className="test-toolbar">
+      {!authUser ? (
+        <AuthPanel onAuth={onAuth} />
+      ) : isTakingTest ? (
+        <main className="test-room">
+          <div className="test-room-header">
             <div>
-              <strong>{selectedBlueprint?.name ?? "Chọn bài test"}</strong>
-              <span>
-                {authUser
-                  ? `${answeredCount}/${questions.length || selectedBlueprint?.totalQuestions || 0} câu đã trả lời`
-                  : "Đăng nhập hoặc đăng ký để bắt đầu test"}
-              </span>
+              <span>{activeBlueprint?.totalQuestions === 50 ? "Final test" : "Practice test"}</span>
+              <h1>{getBlueprintTitle(activeBlueprint, lessons)}</h1>
+              <p>{answeredCount}/{questions.length} câu đã trả lời</p>
             </div>
-            <button onClick={() => startTest()} disabled={!authUser || !selectedBlueprintId || loading}>
-              {attempt ? "Làm lại" : "Bắt đầu"}
-            </button>
+            <div className={`test-timer ${timeRemaining <= 60 ? "urgent" : ""}`} aria-live="polite">
+              <Clock3 size={18} />
+              <strong>{formatCountdown(timeRemaining)}</strong>
+            </div>
           </div>
 
-          {questions.length > 0 && (
-            <div className="backend-mcq-list">
-              {questions.map((question, index) => {
-                const submittedAnswer = result?.answers.find((answer) => answer.questionId === question.id);
-                return (
-                  <article key={question.id} className="mcq-item">
-                    <strong>Câu {index + 1}. {question.prompt}</strong>
-                    <div className="mcq-options">
-                      {question.options?.map((option) => {
-                        const selected = answers[question.id] === option;
-                        const className = submittedAnswer
-                          ? submittedAnswer.answer === option
-                            ? submittedAnswer.isCorrect
-                              ? "correct"
-                              : "wrong"
-                            : ""
-                          : selected
-                            ? "correct"
-                            : "";
-                        return (
-                          <button
-                            key={option}
-                            className={className}
-                            disabled={Boolean(result)}
-                            onClick={() => setAnswers((current) => ({ ...current, [question.id]: option }))}
-                          >
-                            {option}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
+          <div className="test-progress-line" aria-hidden="true">
+            <span style={{ width: `${questions.length ? (answeredCount / questions.length) * 100 : 0}%` }} />
+          </div>
 
-          {attempt && !result && questions.length > 0 && (
-            <button className="submit-test-button" onClick={submitTest} disabled={loading || answeredCount === 0}>
+          <div className="backend-mcq-list">
+            {questions.map((question, index) => (
+              <article key={question.id} className="mcq-item">
+                <strong>Câu {index + 1}. {question.prompt}</strong>
+                <div className="mcq-options">
+                  {question.options?.map((option) => {
+                    const selected = answers[question.id] === option;
+                    return (
+                      <button
+                        key={option}
+                        className={selected ? "correct" : ""}
+                        onClick={() => setAnswers((current) => ({ ...current, [question.id]: option }))}
+                      >
+                        {option}
+                      </button>
+                    );
+                  })}
+                </div>
+              </article>
+            ))}
+          </div>
+
+          <div className="test-submit-bar">
+            <span>{answeredCount === questions.length ? "Đã trả lời đủ câu." : "Có thể nộp khi chưa trả lời hết; câu trống sẽ tính sai."}</span>
+            <button className="submit-test-button" onClick={() => submitTest(false)} disabled={loading}>
               Nộp bài
             </button>
-          )}
-
-          {result && (
-            <section className="test-result">
-              <CheckCircle2 size={22} />
-              <div>
-                <strong>MOS score: {result.mosScore}</strong>
-                <p>{result.answers.filter((answer) => answer.isCorrect).length}/{result.answers.length} câu đúng.</p>
-              </div>
-            </section>
-          )}
+          </div>
         </main>
-      </div>
+      ) : result ? (
+        <main className="test-result-view">
+          <section className={`test-result ${getScoreTone(result.mosScore)}`}>
+            <CheckCircle2 size={22} />
+            <div>
+              <strong>MOS score: {result.mosScore}</strong>
+              <p>{result.answers.filter((answer) => answer.isCorrect).length}/{result.answers.length} câu đúng.</p>
+            </div>
+          </section>
+
+          <div className="test-result-actions">
+            <button onClick={() => activeBlueprint && startTest(activeBlueprint.id)} disabled={loading}>
+              <RotateCcw size={16} /> Làm lại bài này
+            </button>
+            <button onClick={exitResult}>Về danh sách test</button>
+          </div>
+        </main>
+      ) : (
+        <>
+          <div className="test-list-heading">
+            <div>
+              <p className="eyebrow">Chọn bài test</p>
+              <h1>Wordie Tests</h1>
+            </div>
+            <span>{blueprints.length} bài test</span>
+          </div>
+
+          <div className="test-catalog">
+            {blueprints.map((blueprint) => {
+              const bestAttempt = getBestAttemptForBlueprint(attemptHistory, blueprint.id);
+              const lastAttempt = getLatestAttemptForBlueprint(attemptHistory, blueprint.id);
+              return (
+                <button key={blueprint.id} className="test-card" onClick={() => startTest(blueprint.id)} disabled={loading}>
+                  <span>{blueprint.totalQuestions === 50 ? "Cuối khóa" : "Học phần"}</span>
+                  <strong>{getBlueprintTitle(blueprint, lessons)}</strong>
+                  <small>{blueprint.totalQuestions} câu · {getTestDurationMinutes(blueprint)} phút</small>
+                  <div className="test-card-meta">
+                    <b>{bestAttempt ? `Cao nhất ${bestAttempt.mosScore}` : "Chưa làm"}</b>
+                    <em>{lastAttempt ? `Lần gần nhất ${lastAttempt.mosScore}` : "Bấm để vào bài"}</em>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          <section className="test-history">
+            <div className="section-heading">
+              <strong>Kết quả đã làm</strong>
+              <span>{attemptHistory.length} lượt nộp</span>
+            </div>
+            {attemptHistory.length ? (
+              <div className="test-history-list">
+                {attemptHistory.slice(0, 8).map((item) => {
+                  const blueprint = blueprints.find((candidate) => candidate.id === item.blueprintId);
+                  return (
+                    <div key={item.id} className="test-history-row">
+                      <div>
+                        <strong>{getBlueprintTitle(blueprint, lessons)}</strong>
+                        <small>{item.submittedAt ? formatDateTime(item.submittedAt) : "Đã nộp"}</small>
+                      </div>
+                      <b className={getScoreTone(item.mosScore)}>{item.mosScore}</b>
+                      <button onClick={() => startTest(item.blueprintId)} disabled={loading}>
+                        Làm lại
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="muted">Bạn chưa nộp bài test nào. Chọn một bài phía trên để bắt đầu lưu kết quả.</p>
+            )}
+          </section>
+        </>
+      )}
     </section>
   );
 }
@@ -1404,14 +1442,17 @@ function PersonalizePage({
     ((plan.localProgress?.activeLessonProgress ?? 0) + (plan.localProgress?.activeQuizPercent ?? 0)) / 2,
   );
   const displayedScore = hasBackendAnalytics ? plan.mosScore : localReadiness;
-  const scorePercent = hasBackendAnalytics ? clampPercent(Math.round((plan.mosScore / 1000) * 100)) : clampPercent(localReadiness);
-  const scoreStyle = { "--score-percent": `${scorePercent}%` } as CSSProperties;
+  const scorePercent = clampPercent(displayedScore);
+  const scoreStyle = {
+    "--score-percent": `${scorePercent}%`,
+    "--score-color": getScoreColor(displayedScore),
+  } as CSSProperties;
   const summaryStats = hasBackendAnalytics
     ? [
-        { label: "Attempts", value: plan.summary?.attempts ?? 0 },
-        { label: "Avg MOS", value: plan.summary?.averageMosScore ?? plan.mosScore },
-        { label: "Best", value: plan.summary?.bestMosScore ?? plan.mosScore },
-        { label: "Latest", value: plan.summary?.latestMosScore ?? plan.mosScore },
+        { label: "Lượt làm", value: plan.summary?.attempts ?? 0 },
+        { label: "Điểm trung bình", value: plan.summary?.averageMosScore ?? plan.mosScore },
+        { label: "Cao nhất", value: plan.summary?.bestMosScore ?? plan.mosScore },
+        { label: "Gần nhất", value: plan.summary?.latestMosScore ?? plan.mosScore },
       ]
     : [
         { label: "Checklist", value: `${plan.localProgress?.activeLessonProgress ?? 0}%` },
@@ -1426,7 +1467,7 @@ function PersonalizePage({
     <section className="personalize-page" aria-label="Lộ trình cá nhân hóa">
       <div className="personalize-hero">
         <div>
-          <p className="eyebrow">Personalize</p>
+          <p className="eyebrow">Cá nhân hóa</p>
           <h1>{plan.readiness === "exam-ready" ? "Sẵn sàng luyện đề MOS" : "Ưu tiên đúng kỹ năng yếu"}</h1>
           <p>{plan.reason}</p>
           <div className="personalize-actions">
@@ -1434,13 +1475,13 @@ function PersonalizePage({
             <Link to="/learn">Quay lại lớp học</Link>
           </div>
         </div>
-        <div className="score-donut-card" aria-label={hasBackendAnalytics ? `MOS score ${plan.mosScore}` : `Study readiness ${displayedScore}%`}>
+        <div className="score-donut-card" aria-label={hasBackendAnalytics ? `Điểm MOS ${plan.mosScore}` : `Mức sẵn sàng học ${displayedScore}%`}>
           <div className="score-donut" style={scoreStyle}>
             <span>{hasBackendAnalytics ? displayedScore : `${displayedScore}%`}</span>
           </div>
           <div>
-            <strong>{hasBackendAnalytics ? "MOS score" : "Study readiness"}</strong>
-            <small>{hasBackendAnalytics ? (plan.readiness === "exam-ready" ? "Exam-ready" : "Needs practice") : "Chưa đăng nhập"}</small>
+            <strong>{hasBackendAnalytics ? "Điểm MOS" : "Mức sẵn sàng học"}</strong>
+            <small>{hasBackendAnalytics ? (plan.readiness === "exam-ready" ? "Sẵn sàng luyện đề" : "Cần luyện thêm") : "Chưa đăng nhập"}</small>
           </div>
         </div>
       </div>
@@ -1449,7 +1490,7 @@ function PersonalizePage({
         <section className="personalize-section personalize-analytics">
           <div className="section-heading">
             <strong>{hasBackendAnalytics ? "Tổng quan từ bài test" : "Tạm tính từ bài học"}</strong>
-            <span>{hasBackendAnalytics ? "MOS Analytics" : "Local progress"}</span>
+            <span>{hasBackendAnalytics ? "Dữ liệu bài test" : "Tiến độ trên máy này"}</span>
           </div>
           {!hasBackendAnalytics && (
             <div className="personalize-login-note">
@@ -1464,7 +1505,7 @@ function PersonalizePage({
               </div>
             ))}
           </div>
-          <div className="domain-chart" aria-label="Domain mastery chart">
+          <div className="domain-chart" aria-label="Biểu đồ mức độ nắm bài theo nhóm kỹ năng">
             {progressRows.length ? (
               progressRows.map((row) => (
                 <div key={row.id} className="domain-bar-row">
@@ -1505,16 +1546,16 @@ function PersonalizePage({
 
         <section className="personalize-section skill-chart-panel">
           <div className="section-heading">
-            <strong>{hasBackendAnalytics ? "Skill yếu" : "Skill gợi ý ôn"}</strong>
-            <span>{focusSkills.length || 1} focus</span>
+            <strong>{hasBackendAnalytics ? "Kỹ năng yếu" : "Kỹ năng gợi ý ôn"}</strong>
+            <span>{focusSkills.length || 1} trọng tâm</span>
           </div>
           <div className="skill-chart">
             {skillRows.length ? (
               skillRows.map((skill) => (
                 <div key={skill.skillTag} className="skill-chart-row">
                   <div>
-                    <strong>{skill.skillTag}</strong>
-                    <small>{skill.avgSeconds ? `${skill.avgSeconds}s trung bình` : "Cần luyện thêm"}</small>
+                    <strong>{formatSkillLabel(skill.skillTag)}</strong>
+                    <small>{skill.avgSeconds ? `${skill.avgSeconds}s trung bình mỗi câu` : "Cần luyện thêm"}</small>
                   </div>
                   <div className="skill-track" aria-hidden="true">
                     <span style={{ width: `${Math.max(5, skill.masteryPercent)}%` }} />
@@ -1523,7 +1564,7 @@ function PersonalizePage({
                 </div>
               ))
             ) : (
-              <p className="muted">Chưa có skill yếu rõ ràng. Hệ thống sẽ cập nhật sau khi có thêm attempt.</p>
+              <p className="muted">Chưa có kỹ năng yếu rõ ràng. Hệ thống sẽ cập nhật sau khi bạn nộp thêm bài test.</p>
             )}
           </div>
         </section>
@@ -1552,11 +1593,11 @@ function PersonalizePage({
 
         <section className="personalize-section recommendations-panel">
           <div className="section-heading">
-            <strong>Khuyến nghị</strong>
+            <strong>Khuyến nghị ôn tập</strong>
           </div>
           {plan.recommendations.map((recommendation) => (
             <article key={`${recommendation.priority}-${recommendation.message}`}>
-              <span>{recommendation.priority}</span>
+              <span>{formatRecommendationPriority(recommendation.priority)}</span>
               <p>{recommendation.message}</p>
             </article>
           ))}
@@ -1570,6 +1611,55 @@ function clampPercent(value: number) {
   return Math.max(0, Math.min(100, value));
 }
 
+function getTestDurationMinutes(blueprint?: ExamBlueprint) {
+  return blueprint?.totalQuestions === 50 ? 90 : 30;
+}
+
+function getBlueprintTitle(blueprint: ExamBlueprint | undefined, lessons: Lesson[]) {
+  if (!blueprint) return "Bài test";
+  const lesson = lessons.find((item) => item.id === blueprint.lessonId);
+  return lesson?.title ?? blueprint.name;
+}
+
+function formatCountdown(totalSeconds: number) {
+  const bounded = Math.max(0, totalSeconds);
+  const minutes = Math.floor(bounded / 60);
+  const seconds = bounded % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function getLatestAttemptForBlueprint(attempts: ExamResult[], blueprintId: string) {
+  return attempts.find((attempt) => attempt.blueprintId === blueprintId);
+}
+
+function getBestAttemptForBlueprint(attempts: ExamResult[], blueprintId: string) {
+  return attempts
+    .filter((attempt) => attempt.blueprintId === blueprintId)
+    .sort((left, right) => right.mosScore - left.mosScore)[0];
+}
+
+function getScoreTone(score: number) {
+  if (score < 40) return "score-low";
+  if (score < 80) return "score-mid";
+  return "score-high";
+}
+
+function getScoreColor(score: number) {
+  if (score < 40) return "#d92d20";
+  if (score < 80) return "#f2b705";
+  return "#18a27d";
+}
+
 function normalizeDomainRows(rows?: PersonalizedPlan["domainMastery"]) {
   return [...(rows ?? [])]
     .filter((row) => row.attempts > 0)
@@ -1578,7 +1668,7 @@ function normalizeDomainRows(rows?: PersonalizedPlan["domainMastery"]) {
     .map((row) => ({
       id: row.domain,
       label: formatDomainLabel(row.domain),
-      detail: `${row.attempts} câu đã làm`,
+      detail: `${row.attempts} lượt câu trong bài test`,
       percent: row.masteryPercent,
     }));
 }
@@ -1608,15 +1698,74 @@ function normalizeSkillRows(rows?: PersonalizedPlan["skillMastery"], fallback: P
 
 function formatDomainLabel(domain: string) {
   const labels: Record<string, string> = {
-    manage_documents: "Manage documents",
-    insert_format_text: "Text & paragraphs",
-    manage_tables_lists: "Tables & lists",
-    references_graphics: "References & graphics",
-    collaboration: "Review & collaboration",
-    mail_merge: "Mail merge",
+    "manage-documents": "Quản lý tài liệu",
+    "insert-format-text": "Định dạng văn bản",
+    "manage-tables-lists": "Bảng và danh sách",
+    "create-manage-references": "Mục lục và tham chiếu",
+    "insert-format-graphic-elements": "Hình ảnh và đối tượng",
+    "manage-collaboration": "Review và cộng tác",
+    manage_documents: "Quản lý tài liệu",
+    insert_format_text: "Định dạng văn bản",
+    manage_tables_lists: "Bảng và danh sách",
+    references_graphics: "Mục lục và tham chiếu",
+    collaboration: "Review và cộng tác",
+    mail_merge: "Mail Merge",
   };
 
   return labels[domain] ?? domain.replace(/[-_]/g, " ");
+}
+
+function formatSkillLabel(skillTag: string) {
+  const labels: Record<string, string> = {
+    layout: "Bố cục trang",
+    "page-setup": "Thiết lập trang",
+    "print-preview": "Xem trước khi in",
+    paragraph: "Định dạng đoạn văn",
+    "normal-style": "Normal Style",
+    "line-spacing": "Giãn dòng",
+    table: "Bảng",
+    "form-layout": "Bố cục biểu mẫu",
+    "export-pdf": "Xuất PDF",
+    heading: "Heading",
+    "heading-toc": "Heading và mục lục",
+    toc: "Mục lục",
+    "field-update": "Cập nhật field",
+    caption: "Caption",
+    "caption-reference": "Caption và tham chiếu",
+    "cross-reference": "Cross-reference",
+    "wrap-text": "Wrap Text",
+    "mail-merge": "Mail Merge",
+    "data-source": "Nguồn dữ liệu",
+    "preview-results": "Preview Results",
+    "track-changes": "Track Changes",
+    comments: "Comment",
+    "protect-document": "Bảo vệ tài liệu",
+    "section-page-number": "Section và số trang",
+    "header-footer": "Header và footer",
+    "page-number": "Số trang",
+    "document-format": "Thể thức văn bản",
+    "inspect-document": "Kiểm tra metadata",
+    "official-layout": "Bố cục hành chính",
+    "shortcut-speed": "Tốc độ phím tắt",
+    "editing-speed": "Tốc độ chỉnh sửa",
+    autocorrect: "AutoCorrect",
+    troubleshooting: "Sửa lỗi Word",
+    "review-protect": "Review và bảo vệ",
+    "tables-forms": "Bảng và biểu mẫu",
+    "word-foundation": "Nền tảng Word",
+  };
+
+  return labels[skillTag] ?? skillTag.replace(/[-_]/g, " ");
+}
+
+function formatRecommendationPriority(priority: string) {
+  const labels: Record<string, string> = {
+    urgent: "Cần ưu tiên",
+    practice: "Cần luyện thêm",
+    maintenance: "Duy trì",
+  };
+
+  return labels[priority] ?? priority;
 }
 
 function WordLabPanel({ lab }: { lab: WordLab }) {

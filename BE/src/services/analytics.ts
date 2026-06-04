@@ -22,7 +22,7 @@ export async function getStudentAnalytics(studentId: string) {
       averageMosScore: average(studentAttempts.map((attempt) => attempt.mosScore)),
       bestMosScore: Math.max(0, ...studentAttempts.map((attempt) => attempt.mosScore)),
       latestMosScore: latestAttempt?.mosScore ?? 0,
-      passReady: (latestAttempt?.mosScore ?? 0) >= 700,
+      passReady: (latestAttempt?.mosScore ?? 0) >= 80,
     },
     domainMastery,
     skillMastery: mastery,
@@ -37,6 +37,7 @@ export async function getStudentPersonalization(studentId: string) {
 
   const weakSkills = analytics.skillMastery.filter((skill) => skill.masteryPercent < 70).slice(0, 3);
   const nextFocus = weakSkills[0]?.skillTag ?? "page-setup";
+  const nextFocusLabel = formatSkillLabel(nextFocus);
   const recommendedLessonId = mapSkillToLesson(nextFocus);
   const passReady = analytics.summary.passReady;
 
@@ -51,7 +52,7 @@ export async function getStudentPersonalization(studentId: string) {
     recommendedLessonId,
     reason:
       weakSkills.length > 0
-        ? `Hệ thống phát hiện kỹ năng ${nextFocus} còn yếu, nên ưu tiên ôn lại bài liên quan trước khi làm đề tiếp.`
+        ? `Hệ thống phát hiện kỹ năng ${nextFocusLabel} còn yếu dựa trên các câu test đã nộp, nên ưu tiên ôn lại bài liên quan trước khi làm đề tiếp.`
         : "Kết quả hiện tại ổn định, nên tiếp tục bài kế tiếp và làm thêm đề đồng bộ để giữ nhịp luyện tập.",
     weakSkills,
     recommendations: analytics.recommendations,
@@ -59,8 +60,8 @@ export async function getStudentPersonalization(studentId: string) {
     focusPlan: buildFocusPlan(weakSkills, recommendedLessonId),
     learningRules: [
       "Hoàn thành checklist bài học để mở khóa gợi ý tiếp theo.",
-      "Nếu trắc nghiệm dưới 80%, hệ thống giữ học viên ở bài hiện tại để ôn lại.",
-      "Nếu một skill tag sai nhiều lần, lộ trình ưu tiên bài học liên quan skill đó.",
+      "Nếu bài test dưới 80 điểm, hệ thống ưu tiên ôn lại trước khi chuyển sang đề khó hơn.",
+      "Nếu một kỹ năng có tỷ lệ đúng thấp trong nhiều câu test, lộ trình sẽ ưu tiên bài học liên quan kỹ năng đó.",
     ],
   };
 }
@@ -82,7 +83,7 @@ export async function getAdminOverview() {
     },
     examQuality: {
       averageMosScore: average(submittedAttempts.map((attempt) => attempt.mosScore)),
-      passRate: percent(submittedAttempts.filter((attempt) => attempt.mosScore >= 700).length, submittedAttempts.length),
+      passRate: percent(submittedAttempts.filter((attempt) => attempt.mosScore >= 80).length, submittedAttempts.length),
       averageDurationMinutes: average(
         submittedAttempts.map((attempt) =>
           Math.round(attempt.answers.reduce((sum, answer) => sum + answer.elapsedSeconds, 0) / 60),
@@ -168,7 +169,7 @@ function buildRecommendations(mastery: Mastery[]) {
 
   return weakSkills.map((skill) => ({
     priority: skill.masteryPercent < 50 ? "urgent" : "practice",
-    message: `Kỹ năng ${skill.skillTag} đang ở ${skill.masteryPercent}%. Nên ôn lại lesson liên quan và làm thêm 5 câu tagged ${skill.skillTag}.`,
+    message: `Kỹ năng ${formatSkillLabel(skill.skillTag)} đang ở ${skill.masteryPercent}%. Nên ôn lại bài liên quan và làm thêm 5 câu thuộc kỹ năng này.`,
     skillTags: [skill.skillTag],
   }));
 }
@@ -183,10 +184,47 @@ function buildNextActions(weakSkills: Mastery[], passReady: boolean) {
   }
 
   return [
-    `Ôn lại lesson gắn với skill ${weakSkills[0]?.skillTag ?? "page-setup"}.`,
-    "Làm 5 câu luyện tập đúng skill yếu trước khi làm đề mới.",
-    "Sau khi đạt tối thiểu 80%, chuyển sang mock test đủ thời gian.",
+    `Ôn lại bài gắn với kỹ năng ${formatSkillLabel(weakSkills[0]?.skillTag ?? "page-setup")}.`,
+    "Làm 5 câu luyện tập đúng kỹ năng yếu trước khi làm đề mới.",
+    "Sau khi đạt tối thiểu 80 điểm, chuyển sang mock test đủ thời gian.",
   ];
+}
+
+function formatSkillLabel(skillTag: string) {
+  const labels: Record<string, string> = {
+    layout: "bố cục trang",
+    "page-setup": "thiết lập trang",
+    "print-preview": "xem trước khi in",
+    paragraph: "định dạng đoạn văn",
+    "normal-style": "Normal Style",
+    "line-spacing": "giãn dòng",
+    table: "bảng",
+    "form-layout": "bố cục biểu mẫu",
+    heading: "Heading",
+    toc: "mục lục",
+    "field-update": "cập nhật field",
+    caption: "caption",
+    "cross-reference": "tham chiếu chéo",
+    "wrap-text": "Wrap Text",
+    "mail-merge": "Mail Merge",
+    "data-source": "nguồn dữ liệu",
+    "preview-results": "Preview Results",
+    "track-changes": "Track Changes",
+    comments: "comment",
+    "protect-document": "bảo vệ tài liệu",
+    "section-page-number": "section và số trang",
+    "header-footer": "header và footer",
+    "page-number": "số trang",
+    "document-format": "thể thức văn bản",
+    "inspect-document": "kiểm tra metadata",
+    "official-layout": "bố cục hành chính",
+    "shortcut-speed": "tốc độ phím tắt",
+    "editing-speed": "tốc độ chỉnh sửa",
+    autocorrect: "AutoCorrect",
+    troubleshooting: "sửa lỗi Word",
+  };
+
+  return labels[skillTag] ?? skillTag.replace(/[-_]/g, " ");
 }
 
 function buildFocusPlan(weakSkills: Mastery[], recommendedLessonId: string) {
@@ -268,7 +306,7 @@ function getRetentionAlerts(users: User[], attempts: ExamAttempt[]) {
       const studentAttempts = attempts.filter((attempt) => attempt.studentId === student.id && attempt.submittedAt);
       const latestAttempts = [...studentAttempts].sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, 3);
       const inactiveDays = Math.floor((Date.now() - new Date(student.lastLoginAt).getTime()) / 86400000);
-      const lowScoreStreak = latestAttempts.length >= 2 && latestAttempts.every((attempt) => attempt.mosScore < 500);
+      const lowScoreStreak = latestAttempts.length >= 2 && latestAttempts.every((attempt) => attempt.mosScore < 40);
       return {
         studentId: student.id,
         name: student.name,
@@ -278,7 +316,7 @@ function getRetentionAlerts(users: User[], attempts: ExamAttempt[]) {
           inactiveDays >= 7
             ? "Không đăng nhập từ 7 ngày trở lên"
             : lowScoreStreak
-              ? "Nhiều lần thi thử dưới 500 điểm"
+              ? "Nhiều lần thi thử dưới 40 điểm"
               : "",
       };
     })

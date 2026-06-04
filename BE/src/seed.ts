@@ -35,7 +35,7 @@ export const questions: Question[] = [
     prompt: "Đặt khổ giấy A4, Portrait, lề trái 3cm và kiểm tra Print Preview.",
     expectedAnswer: ["A4", "Portrait", "Left 3cm", "Print Preview"],
     estimatedSeconds: 180,
-    points: 10,
+    points: 15,
   },
   {
     id: "q-format-1",
@@ -47,7 +47,7 @@ export const questions: Question[] = [
     prompt: "Sắp xếp các bước chỉnh Normal Style cho thân bài học thuật.",
     expectedAnswer: ["Home > Styles", "Right click Normal", "Modify", "Format > Paragraph", "OK"],
     estimatedSeconds: 150,
-    points: 10,
+    points: 20,
   },
   {
     id: "q-table-1",
@@ -59,7 +59,7 @@ export const questions: Question[] = [
     prompt: "Sắp xếp thao tác tạo biểu mẫu khảo sát bằng bảng.",
     expectedAnswer: ["Insert > Table", "Nhập dữ liệu", "Distribute Rows", "Borders", "Save"],
     estimatedSeconds: 210,
-    points: 10,
+    points: 20,
   },
   {
     id: "q-reference-1",
@@ -71,7 +71,7 @@ export const questions: Question[] = [
     prompt: "Áp dụng Heading 1/2, chèn Table of Contents và cập nhật toàn bộ mục lục.",
     expectedAnswer: ["Heading 1", "Heading 2", "Table of Contents", "Update entire table"],
     estimatedSeconds: 240,
-    points: 15,
+    points: 25,
   },
   {
     id: "q-graphic-1",
@@ -83,7 +83,7 @@ export const questions: Question[] = [
     prompt: "Chèn caption cho hình và tạo cross-reference trong đoạn văn.",
     expectedAnswer: ["Insert Caption", "Figure label", "Cross-reference"],
     estimatedSeconds: 220,
-    points: 10,
+    points: 20,
   },
   {
     id: "q-review-1",
@@ -95,7 +95,7 @@ export const questions: Question[] = [
     prompt: "Ẩn markup có đồng nghĩa với việc đã xóa thay đổi không?",
     expectedAnswer: "Không. Phải Accept hoặc Reject thay đổi.",
     estimatedSeconds: 45,
-    points: 5,
+    points: 20,
   },
   {
     id: "q-mailmerge-1",
@@ -107,7 +107,7 @@ export const questions: Question[] = [
     prompt: "Kết nối danh sách Excel, chèn merge fields và Preview Results trước khi Finish.",
     expectedAnswer: ["Select Recipients", "Insert Merge Field", "Preview Results", "Finish & Merge"],
     estimatedSeconds: 300,
-    points: 15,
+    points: 25,
   },
 ];
 
@@ -116,9 +116,9 @@ export const blueprints: ExamBlueprint[] = [
     id: "mos-word-mock-1",
     name: "MOS Word Mock Test 1",
     totalQuestions: 5,
-    durationMinutes: 50,
-    mosScaleMin: 100,
-    mosScaleMax: 1000,
+    durationMinutes: 30,
+    mosScaleMin: 0,
+    mosScaleMax: 100,
     domainMatrix: [
       { domain: "manage-documents", percent: 30, difficulties: ["foundation", "medium", "advanced"] },
       { domain: "insert-format-text", percent: 20, difficulties: ["foundation", "medium"] },
@@ -137,8 +137,8 @@ export const attempts: ExamAttempt[] = [
     questionIds: ["q-layout-1", "q-format-1", "q-table-1", "q-reference-1", "q-review-1"],
     startedAt: new Date(Date.now() - 3 * 86400000).toISOString(),
     submittedAt: new Date(Date.now() - 3 * 86400000 + 42 * 60000).toISOString(),
-    rawScore: 35,
-    mosScore: 700,
+    rawScore: 80,
+    mosScore: 80,
     answers: [
       { questionId: "q-layout-1", answer: ["A4", "Portrait", "Left 3cm", "Print Preview"], elapsedSeconds: 170, isCorrect: true },
       { questionId: "q-format-1", answer: ["Home > Styles", "Right click Normal", "Modify", "Format > Paragraph", "OK"], elapsedSeconds: 160, isCorrect: true },
@@ -154,8 +154,8 @@ export const attempts: ExamAttempt[] = [
     questionIds: ["q-layout-1", "q-format-1", "q-table-1", "q-mailmerge-1", "q-review-1"],
     startedAt: new Date(Date.now() - 10 * 86400000).toISOString(),
     submittedAt: new Date(Date.now() - 10 * 86400000 + 48 * 60000).toISOString(),
-    rawScore: 20,
-    mosScore: 460,
+    rawScore: 35,
+    mosScore: 35,
     answers: [
       { questionId: "q-layout-1", answer: ["A4", "Portrait", "Left 3cm", "Print Preview"], elapsedSeconds: 210, isCorrect: true },
       { questionId: "q-format-1", answer: ["Modify", "Home > Styles", "Right click Normal", "Format > Paragraph", "OK"], elapsedSeconds: 220, isCorrect: false },

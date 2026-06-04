@@ -37,6 +37,13 @@ export async function listExamBlueprints() {
   return collections().blueprints.find({}, withoutMongoId<ExamBlueprint>()).toArray();
 }
 
+export async function listStudentAttempts(studentId: string) {
+  return collections()
+    .attempts.find({ studentId, submittedAt: { $exists: true } }, withoutMongoId<ExamAttempt>())
+    .sort({ submittedAt: -1 })
+    .toArray();
+}
+
 export async function generateExamAttempt(studentId: string, blueprintId: string) {
   const student = await collections().users.findOne({ id: studentId, role: "student" });
   if (!student) throw new Error("Student not found");
@@ -198,7 +205,8 @@ async function convertToMosScore(attempt: ExamAttempt) {
     return total + (question?.points ?? 0);
   }, 0);
   const ratio = totalPoints === 0 ? 0 : attempt.rawScore / totalPoints;
-  return Math.round(blueprint.mosScaleMin + ratio * (blueprint.mosScaleMax - blueprint.mosScaleMin));
+  const boundedRatio = Math.max(0, Math.min(1, ratio));
+  return Math.round(blueprint.mosScaleMin + boundedRatio * (blueprint.mosScaleMax - blueprint.mosScaleMin));
 }
 
 export function maskQuestionAnswer(question: Question): SafeQuestion {

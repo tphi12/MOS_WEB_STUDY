@@ -12,6 +12,7 @@ import {
   generateExamAttempt,
   getAttemptWithQuestions,
   listExamBlueprints,
+  listStudentAttempts,
   listSafeQuestionBank,
   submitAttempt,
 } from "./services/examEngine.js";
@@ -114,6 +115,14 @@ app.post("/api/exam-blueprints/:blueprintId/start", async (request, response) =>
 app.get("/api/attempts/:attemptId", async (request, response) => {
   try {
     response.json(await getAttemptWithQuestions(request.params.attemptId));
+  } catch (error) {
+    response.status(404).json({ error: getErrorMessage(error) });
+  }
+});
+
+app.get("/api/students/:studentId/attempts", async (request, response) => {
+  try {
+    response.json(await listStudentAttempts(request.params.studentId));
   } catch (error) {
     response.status(404).json({ error: getErrorMessage(error) });
   }
