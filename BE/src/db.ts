@@ -1,5 +1,5 @@
 import { MongoClient, type Collection, type Db } from "mongodb";
-import type { ExamAttempt, ExamBlueprint, Question, User } from "./types.js";
+import type { ExamAttempt, ExamBlueprint, PracticalAttempt, PracticalTest, Question, User } from "./types.js";
 
 const uri = process.env.MONGODB_URI ?? "mongodb://127.0.0.1:27017";
 const dbName = process.env.MONGODB_DB ?? "mos_web_study";
@@ -12,6 +12,8 @@ export type Collections = {
   questions: Collection<Question>;
   blueprints: Collection<ExamBlueprint>;
   attempts: Collection<ExamAttempt>;
+  practicalTests: Collection<PracticalTest>;
+  practicalAttempts: Collection<PracticalAttempt>;
 };
 
 export async function connectDb() {
@@ -29,6 +31,9 @@ export async function connectDb() {
     db.collection<ExamBlueprint>("blueprints").createIndex({ id: 1 }, { unique: true }),
     db.collection<ExamAttempt>("attempts").createIndex({ id: 1 }, { unique: true }),
     db.collection<ExamAttempt>("attempts").createIndex({ studentId: 1, submittedAt: -1 }),
+    db.collection<PracticalTest>("practicalTests").createIndex({ id: 1 }, { unique: true }),
+    db.collection<PracticalAttempt>("practicalAttempts").createIndex({ id: 1 }, { unique: true }),
+    db.collection<PracticalAttempt>("practicalAttempts").createIndex({ studentId: 1, submittedAt: -1 }),
   ]);
 
   return db;
@@ -41,6 +46,8 @@ export function collections(): Collections {
     questions: db.collection<Question>("questions"),
     blueprints: db.collection<ExamBlueprint>("blueprints"),
     attempts: db.collection<ExamAttempt>("attempts"),
+    practicalTests: db.collection<PracticalTest>("practicalTests"),
+    practicalAttempts: db.collection<PracticalAttempt>("practicalAttempts"),
   };
 }
 

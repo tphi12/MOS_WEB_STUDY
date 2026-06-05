@@ -80,3 +80,53 @@ export type Mastery = {
   masteryPercent: number;
   lastPracticedAt: string;
 };
+
+export type PracticalCheckType =
+  | "contains"
+  | "heading"
+  | "bold"
+  | "table"
+  | "list"
+  | "heading-text"
+  | "bold-text"
+  | "list-contains"
+  | "table-contains";
+
+export type PracticalTest = {
+  id: string;
+  title: string;
+  description: string;
+  lessonId?: string;
+  durationMinutes: number;
+  initialContent: string;
+  tasks: Array<{
+    id: string;
+    title: string;
+    instruction: string;
+    checks: Array<{
+      id: string;
+      label: string;
+      type: PracticalCheckType;
+      value?: string;
+      points: number;
+    }>;
+  }>;
+};
+
+export type PracticalAttempt = {
+  id: string;
+  studentId: string;
+  practicalTestId: string;
+  startedAt: string;
+  submittedAt?: string;
+  content: string;
+  score: number;
+  checkResults: Array<{
+    checkId: string;
+    taskId: string;
+    label: string;
+    points: number;
+    earnedPoints: number;
+    passed: boolean;
+  }>;
+};

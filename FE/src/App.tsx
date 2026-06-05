@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+﻿﻿import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { CKEditor } from "@ckeditor/ckeditor5-react";
@@ -96,6 +96,8 @@ type PersonalizedPlan = {
   }>;
   summary?: {
     attempts: number;
+    completedTests?: number;
+    processMosScore?: number;
     averageMosScore: number;
     bestMosScore: number;
     latestMosScore: number;
@@ -153,6 +155,38 @@ type ExamAttempt = {
 type ExamResult = ExamAttempt & {
   answers: Array<{ questionId: string; answer: string | string[]; isCorrect: boolean }>;
   submittedAt?: string;
+};
+
+type PracticalTest = {
+  id: string;
+  title: string;
+  description: string;
+  lessonId?: string;
+  durationMinutes: number;
+  initialContent: string;
+  tasks: Array<{
+    id: string;
+    title: string;
+    instruction: string;
+    checks: Array<{ id: string; label: string; type: string; value?: string; points: number }>;
+  }>;
+};
+
+type PracticalAttempt = {
+  id: string;
+  practicalTestId: string;
+  startedAt: string;
+  submittedAt?: string;
+  content: string;
+  score: number;
+  checkResults: Array<{
+    taskId: string;
+    checkId: string;
+    label: string;
+    points: number;
+    earnedPoints: number;
+    passed: boolean;
+  }>;
 };
 
 type AuthUser = {
@@ -242,8 +276,8 @@ export function App() {
   const lessonStepKeys = activeLesson.steps.map((_, index) => `${activeLesson.id}-${index}`);
   const completedSteps = lessonStepKeys.filter((key) => checkedSteps[key]).length;
   const lessonProgress = Math.round((completedSteps / activeLesson.steps.length) * 100);
-  const theoryBlocks = getTheoryBlocks(activeLesson);
   const mosTheory = getMosTheory(activeLesson);
+  const activeLessonLab = useMemo(() => getLessonLab(activeLesson), [activeLesson]);
   const knowledgeChecks = isTheoryOnlyLesson ? [] : getKnowledgeChecks(activeLesson);
   const sequenceQuestions = isTheoryOnlyLesson ? [] : getSequenceQuestions(activeLesson);
   const shortcutChallenges = isTheoryOnlyLesson ? [] : getShortcutChallenges(activeLesson);
@@ -615,19 +649,6 @@ export function App() {
               </div>
             </section>
 
-            <section className="learning-block theory-section">
-              <h3>Lý thuyết cần nắm</h3>
-              <div className="theory-grid">
-                {theoryBlocks.map((block) => (
-                  <article key={block.title} className="theory-card">
-                    <span>{block.kicker}</span>
-                    <strong>{block.title}</strong>
-                    <p>{block.body}</p>
-                  </article>
-                ))}
-              </div>
-            </section>
-
             <section className="learning-block">
               <h3>Điểm cần nắm</h3>
               <div className="checkpoint-row">
@@ -659,7 +680,7 @@ export function App() {
               </div>
             </section>
 
-            {activeLesson.lab && <WordLabPanel lab={activeLesson.lab} />}
+            <WordLabPanel lab={activeLessonLab} />
 
             <section className="learning-block">
               <div className="callout-grid">
@@ -718,7 +739,7 @@ export function App() {
                     const isCorrect = arraysEqual(currentOrder, question.steps);
                     return (
                       <article key={questionKey} className="sequence-card">
-                        <span>Sequence Matching</span>
+                        <span>Sắp xếp thao tác</span>
                         <strong>{question.prompt}</strong>
                         <div className="sequence-steps">
                           {currentOrder.map((step, index) => (
@@ -741,7 +762,7 @@ export function App() {
                         </div>
                         <div className="practice-actions">
                           <button onClick={() => setSequenceChecked((state) => ({ ...state, [questionKey]: true }))}>Kiểm tra</button>
-                          <button onClick={() => resetSequence(questionKey)}>Reset</button>
+                              <button onClick={() => resetSequence(questionKey)}>Làm lại</button>
                         </div>
                         {isChecked && (
                           <p className={`quiz-feedback ${isCorrect ? "good" : "bad"}`}>
@@ -760,7 +781,7 @@ export function App() {
                     const isCorrect = captured === challenge.expected;
                     return (
                       <article key={challengeKey} className="shortcut-master-card">
-                        <span>Shortcut Master</span>
+                        <span>Luyện phím tắt</span>
                         <strong>{challenge.prompt}</strong>
                         <button
                           className={`shortcut-capture ${captured ? (isCorrect ? "correct" : "wrong") : ""}`}
@@ -1095,14 +1116,38 @@ function TestsPage({
   const [result, setResult] = useState<ExamResult | null>(null);
   const [attemptStartedAt, setAttemptStartedAt] = useState<number | null>(null);
   const [attemptHistory, setAttemptHistory] = useState<ExamResult[]>([]);
+  const [practicalTests, setPracticalTests] = useState<PracticalTest[]>([]);
+  const [practicalAttempt, setPracticalAttempt] = useState<PracticalAttempt | null>(null);
+  const [activePracticalTest, setActivePracticalTest] = useState<PracticalTest | null>(null);
+  const [practicalContent, setPracticalContent] = useState("");
+  const [practicalResult, setPracticalResult] = useState<PracticalAttempt | null>(null);
+  const [practicalHistory, setPracticalHistory] = useState<PracticalAttempt[]>([]);
   const [timeRemaining, setTimeRemaining] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const autoSubmittedAttemptId = useRef<string | null>(null);
+  const autoSubmittedPracticalAttemptId = useRef<string | null>(null);
 
   const activeBlueprint = blueprints.find((blueprint) => blueprint.id === attempt?.blueprintId);
   const answeredCount = questions.filter((question) => answers[question.id]).length;
   const isTakingTest = Boolean(attempt && questions.length > 0 && !result);
+  const isTakingPractical = Boolean(practicalAttempt && activePracticalTest && !practicalResult);
+  const practicalEditorConfig = useMemo(
+    () => ({
+      licenseKey: "GPL",
+      plugins: [Essentials, Paragraph, Heading, Bold, Italic, CkLink, List, Table, TableToolbar, Undo],
+      toolbar: ["undo", "redo", "|", "heading", "|", "bold", "italic", "link", "|", "bulletedList", "numberedList", "|", "insertTable"],
+      heading: {
+        options: [
+          { model: "paragraph", title: "Normal", class: "ck-heading_paragraph" },
+          { model: "heading1", view: "h2", title: "Tiêu đề cấp 1", class: "ck-heading_heading1" },
+          { model: "heading2", view: "h3", title: "Tiêu đề cấp 2", class: "ck-heading_heading2" },
+        ],
+      },
+      table: { contentToolbar: ["tableColumn", "tableRow", "mergeTableCells"] },
+    }) as Record<string, unknown>,
+    [],
+  );
 
   useEffect(() => {
     fetch(`${API_URL}/api/exam-blueprints`)
@@ -1115,29 +1160,50 @@ function TestsPage({
   }, []);
 
   useEffect(() => {
+    fetch(`${API_URL}/api/practical-tests`)
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error("Cannot load practical tests"))))
+      .then((data: PracticalTest[]) => setPracticalTests(data))
+      .catch(() => setError("Không tải được danh sách bài thi thực hành từ backend."));
+  }, []);
+
+  useEffect(() => {
     if (!authUser) {
       setAttemptHistory([]);
+      setPracticalHistory([]);
       return;
     }
 
     loadAttemptHistory(authUser.id);
+    loadPracticalHistory(authUser.id);
   }, [authUser]);
 
   useEffect(() => {
-    if (!isTakingTest) return;
+    if (!isTakingTest && !isTakingPractical) return;
 
     const timer = window.setInterval(() => {
       setTimeRemaining((current) => Math.max(0, current - 1));
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [isTakingTest]);
+  }, [isTakingTest, isTakingPractical]);
 
   useEffect(() => {
     if (!attempt || !isTakingTest || timeRemaining > 0 || loading || autoSubmittedAttemptId.current === attempt.id) return;
     autoSubmittedAttemptId.current = attempt.id;
     submitTest(true);
   }, [attempt, isTakingTest, loading, timeRemaining]);
+
+  useEffect(() => {
+    if (
+      !practicalAttempt ||
+      !isTakingPractical ||
+      timeRemaining > 0 ||
+      loading ||
+      autoSubmittedPracticalAttemptId.current === practicalAttempt.id
+    ) return;
+    autoSubmittedPracticalAttemptId.current = practicalAttempt.id;
+    submitPracticalTest(true);
+  }, [practicalAttempt, isTakingPractical, loading, timeRemaining]);
 
   async function loadAttemptHistory(studentId: string) {
     try {
@@ -1146,6 +1212,16 @@ function TestsPage({
       setAttemptHistory((await response.json()) as ExamResult[]);
     } catch {
       setAttemptHistory([]);
+    }
+  }
+
+  async function loadPracticalHistory(studentId: string) {
+    try {
+      const response = await fetch(`${API_URL}/api/students/${studentId}/practical-attempts`);
+      if (!response.ok) throw new Error("Cannot load practical attempt history");
+      setPracticalHistory((await response.json()) as PracticalAttempt[]);
+    } catch {
+      setPracticalHistory([]);
     }
   }
 
@@ -1158,6 +1234,9 @@ function TestsPage({
     setResult(null);
     setAnswers({});
     setQuestions([]);
+    setPracticalAttempt(null);
+    setPracticalResult(null);
+    setActivePracticalTest(null);
     autoSubmittedAttemptId.current = null;
     try {
       const response = await fetch(`${API_URL}/api/exam-blueprints/${blueprintId}/start`, {
@@ -1173,6 +1252,35 @@ function TestsPage({
       setQuestions(data.questions.filter((question) => question.options?.length));
     } catch {
       setError("Không bắt đầu được bài test. Hãy kiểm tra backend và dữ liệu seed.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function startPracticalTest(testId: string) {
+    if (!authUser) return;
+    setLoading(true);
+    setError("");
+    setAttempt(null);
+    setResult(null);
+    setQuestions([]);
+    setPracticalResult(null);
+    autoSubmittedPracticalAttemptId.current = null;
+    try {
+      const response = await fetch(`${API_URL}/api/practical-tests/${testId}/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studentId: authUser.id }),
+      });
+      if (!response.ok) throw new Error("Cannot start practical test");
+      const data = (await response.json()) as { attempt: PracticalAttempt; test: PracticalTest };
+      setPracticalAttempt(data.attempt);
+      setActivePracticalTest(data.test);
+      setPracticalContent(data.test.initialContent);
+      setAttemptStartedAt(Date.now());
+      setTimeRemaining(data.test.durationMinutes * 60);
+    } catch {
+      setError("Không bắt đầu được bài thi thực hành. Hãy kiểm tra backend.");
     } finally {
       setLoading(false);
     }
@@ -1209,6 +1317,32 @@ function TestsPage({
     }
   }
 
+  async function submitPracticalTest(isAutoSubmit = false) {
+    if (!practicalAttempt) return;
+    setLoading(true);
+    setError("");
+    try {
+      const response = await fetch(`${API_URL}/api/practical-attempts/${practicalAttempt.id}/submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: practicalContent }),
+      });
+      if (!response.ok) throw new Error("Cannot submit practical test");
+      const submitted = (await response.json()) as PracticalAttempt;
+      setPracticalResult(submitted);
+      setTimeRemaining(0);
+      setPracticalHistory((current) => [submitted, ...current]);
+      if (authUser) {
+        const planResponse = await fetch(`${API_URL}/api/students/${authUser.id}/personalization`);
+        if (planResponse.ok) onPersonalizationUpdated((await planResponse.json()) as PersonalizedPlan);
+      }
+    } catch {
+      setError(isAutoSubmit ? "Hết giờ nhưng chưa nộp được bài thực hành. Hãy bấm nộp lại." : "Không nộp được bài thực hành. Hãy thử lại.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function exitResult() {
     setAttempt(null);
     setAttemptStartedAt(null);
@@ -1216,6 +1350,10 @@ function TestsPage({
     setAnswers({});
     setResult(null);
     setTimeRemaining(0);
+    setPracticalAttempt(null);
+    setActivePracticalTest(null);
+    setPracticalContent("");
+    setPracticalResult(null);
   }
 
   return (
@@ -1224,6 +1362,67 @@ function TestsPage({
 
       {!authUser ? (
         <AuthPanel onAuth={onAuth} />
+      ) : isTakingPractical && activePracticalTest ? (
+        <main className="test-room practical-test-room">
+          <div className="test-room-header">
+            <div>
+              <span>Phòng thi mô phỏng Word</span>
+              <h1>{activePracticalTest.title}</h1>
+              <p>Hoàn thành yêu cầu trực tiếp trên tài liệu và nộp để chấm điểm.</p>
+            </div>
+            <div className={`test-timer ${timeRemaining <= 60 ? "urgent" : ""}`} aria-live="polite">
+              <Clock3 size={18} />
+              <strong>{formatCountdown(timeRemaining)}</strong>
+            </div>
+          </div>
+
+          <div className="practical-workbench">
+            <aside className="practical-brief">
+              <strong>{activePracticalTest.tasks.length} câu thực hành</strong>
+              <div className="practical-task-list">
+                {activePracticalTest.tasks.map((task) => (
+                  <section key={task.id}>
+                    <b>{task.title}</b>
+                    <p>{task.instruction}</p>
+                    <span>{task.checks.length} tiêu chí chấm</span>
+                  </section>
+                ))}
+              </div>
+              <small>Mỗi tiêu chí chỉ được chấm khi bạn nộp bài. Hệ thống tự động nộp khi hết giờ.</small>
+            </aside>
+            <section className="word-simulation" aria-label="Trình mô phỏng Microsoft Word">
+              <div className="word-titlebar">
+                <strong>Wordie Document</strong>
+                <span>Đang làm bài</span>
+              </div>
+              <div className="word-ribbon" aria-hidden="true">
+                <span>Home</span>
+                <button type="button">File</button>
+                <button type="button">Insert</button>
+                <button type="button">Layout</button>
+                <button type="button">References</button>
+                <button type="button">Review</button>
+              </div>
+              <div className="word-page">
+                <CKEditor
+                  editor={ClassicEditor}
+                  config={practicalEditorConfig}
+                  data={activePracticalTest.initialContent}
+                  onChange={(_, editor) => setPracticalContent(editor.getData())}
+                />
+              </div>
+              <div className="word-statusbar">
+                <span>Trang 1 / 1</span>
+                <span>Wordie Simulation</span>
+              </div>
+            </section>
+          </div>
+
+          <div className="test-submit-bar">
+            <span>Nội dung được chấm theo {activePracticalTest.tasks.length} câu và {activePracticalTest.tasks.flatMap((task) => task.checks).length} tiêu chí.</span>
+            <button className="submit-test-button" onClick={() => submitPracticalTest(false)} disabled={loading}>Nộp bài thực hành</button>
+          </div>
+        </main>
       ) : isTakingTest ? (
         <main className="test-room">
           <div className="test-room-header">
@@ -1271,6 +1470,30 @@ function TestsPage({
             </button>
           </div>
         </main>
+      ) : practicalResult ? (
+        <main className="test-result-view">
+          <section className={`test-result ${getScoreTone(practicalResult.score)}`}>
+            <CheckCircle2 size={22} />
+            <div>
+              <strong>Điểm thực hành: {practicalResult.score}/100</strong>
+              <p>{practicalResult.checkResults.filter((item) => item.passed).length}/{practicalResult.checkResults.length} tiêu chí đạt.</p>
+            </div>
+          </section>
+          <div className="practical-result-checks">
+            {practicalResult.checkResults.map((item) => (
+              <div key={item.checkId} className={item.passed ? "passed" : ""}>
+                <CheckCircle2 size={16} />
+                <span>{item.label} ({item.earnedPoints}/{item.points} điểm)</span>
+              </div>
+            ))}
+          </div>
+          <div className="test-result-actions">
+            <button onClick={() => activePracticalTest && startPracticalTest(activePracticalTest.id)} disabled={loading}>
+              <RotateCcw size={16} /> Làm lại bài này
+            </button>
+            <button onClick={exitResult}>Về danh sách test</button>
+          </div>
+        </main>
       ) : result ? (
         <main className="test-result-view">
           <section className={`test-result ${getScoreTone(result.mosScore)}`}>
@@ -1316,6 +1539,29 @@ function TestsPage({
             })}
           </div>
 
+          <div className="test-section-label">
+            <strong>Bài thi mô phỏng thực hành</strong>
+            <span>{practicalTests.length} bài</span>
+          </div>
+          <div className="test-catalog">
+            {practicalTests.map((test) => {
+              const attempts = practicalHistory.filter((item) => item.practicalTestId === test.id);
+              const best = attempts.length ? Math.max(...attempts.map((item) => item.score)) : null;
+              const latest = attempts[0];
+              return (
+                <button key={test.id} className="test-card practical-test-card" onClick={() => startPracticalTest(test.id)} disabled={loading}>
+                  <span>{test.durationMinutes === 90 ? "Thực hành cuối khóa" : "Mô phỏng Word"}</span>
+                  <strong>{test.title}</strong>
+                  <small>{test.tasks.length} câu · {test.tasks.flatMap((task) => task.checks).length} tiêu chí · {test.durationMinutes} phút</small>
+                  <div className="test-card-meta">
+                    <b>{best !== null ? `Cao nhất ${best}` : "Chưa làm"}</b>
+                    <em>{latest ? `Lần gần nhất ${latest.score}` : "Bấm để vào phòng thi"}</em>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
           <section className="test-history">
             <div className="section-heading">
               <strong>Kết quả đã làm</strong>
@@ -1341,6 +1587,32 @@ function TestsPage({
               </div>
             ) : (
               <p className="muted">Bạn chưa nộp bài test nào. Chọn một bài phía trên để bắt đầu lưu kết quả.</p>
+            )}
+          </section>
+
+          <section className="test-history">
+            <div className="section-heading">
+              <strong>Kết quả thực hành</strong>
+              <span>{practicalHistory.length} lượt nộp</span>
+            </div>
+            {practicalHistory.length ? (
+              <div className="test-history-list">
+                {practicalHistory.slice(0, 8).map((item) => {
+                  const test = practicalTests.find((candidate) => candidate.id === item.practicalTestId);
+                  return (
+                    <div key={item.id} className="test-history-row">
+                      <div>
+                        <strong>{test?.title ?? "Bài thi thực hành"}</strong>
+                        <small>{item.submittedAt ? formatDateTime(item.submittedAt) : "Đã nộp"}</small>
+                      </div>
+                      <b className={getScoreTone(item.score)}>{item.score}</b>
+                      <button onClick={() => startPracticalTest(item.practicalTestId)} disabled={loading}>Làm lại</button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="muted">Bạn chưa nộp bài thực hành nào.</p>
             )}
           </section>
         </>
@@ -1450,9 +1722,9 @@ function PersonalizePage({
   const summaryStats = hasBackendAnalytics
     ? [
         { label: "Lượt làm", value: plan.summary?.attempts ?? 0 },
-        { label: "Điểm trung bình", value: plan.summary?.averageMosScore ?? plan.mosScore },
+        { label: "Đề đã hoàn thành", value: plan.summary?.completedTests ?? 0 },
+        { label: "TB mọi lượt", value: plan.summary?.averageMosScore ?? plan.mosScore },
         { label: "Cao nhất", value: plan.summary?.bestMosScore ?? plan.mosScore },
-        { label: "Gần nhất", value: plan.summary?.latestMosScore ?? plan.mosScore },
       ]
     : [
         { label: "Checklist", value: `${plan.localProgress?.activeLessonProgress ?? 0}%` },
@@ -1475,12 +1747,12 @@ function PersonalizePage({
             <Link to="/learn">Quay lại lớp học</Link>
           </div>
         </div>
-        <div className="score-donut-card" aria-label={hasBackendAnalytics ? `Điểm MOS ${plan.mosScore}` : `Mức sẵn sàng học ${displayedScore}%`}>
+        <div className="score-donut-card" aria-label={hasBackendAnalytics ? `Điểm MOS quá trình ${plan.mosScore}` : `Mức sẵn sàng học ${displayedScore}%`}>
           <div className="score-donut" style={scoreStyle}>
             <span>{hasBackendAnalytics ? displayedScore : `${displayedScore}%`}</span>
           </div>
           <div>
-            <strong>{hasBackendAnalytics ? "Điểm MOS" : "Mức sẵn sàng học"}</strong>
+            <strong>{hasBackendAnalytics ? "Điểm MOS quá trình" : "Mức sẵn sàng học"}</strong>
             <small>{hasBackendAnalytics ? (plan.readiness === "exam-ready" ? "Sẵn sàng luyện đề" : "Cần luyện thêm") : "Chưa đăng nhập"}</small>
           </div>
         </div>
@@ -1490,7 +1762,7 @@ function PersonalizePage({
         <section className="personalize-section personalize-analytics">
           <div className="section-heading">
             <strong>{hasBackendAnalytics ? "Tổng quan từ bài test" : "Tạm tính từ bài học"}</strong>
-            <span>{hasBackendAnalytics ? "Dữ liệu bài test" : "Tiến độ trên máy này"}</span>
+            <span>{hasBackendAnalytics ? "Trắc nghiệm + mô phỏng" : "Tiến độ trên máy này"}</span>
           </div>
           {!hasBackendAnalytics && (
             <div className="personalize-login-note">
@@ -1769,12 +2041,15 @@ function formatRecommendationPriority(priority: string) {
 }
 
 function WordLabPanel({ lab }: { lab: WordLab }) {
-  const [content, setContent] = useState(lab.initialContent);
+  const initialLabContent = lab.initialContent.replace("<!--pagebreak-->", "");
+  const [content, setContent] = useState(initialLabContent);
+  const [pageCount, setPageCount] = useState(() => calculateLabPageCount(initialLabContent));
   const results = useMemo(() => lab.checks.map((check) => ({ ...check, passed: evaluateLabCheck(content, check) })), [content, lab]);
   const passedCount = results.filter((result) => result.passed).length;
 
   useEffect(() => {
-    setContent(lab.initialContent);
+    setContent(lab.initialContent.replace("<!--pagebreak-->", ""));
+    setPageCount(calculateLabPageCount(lab.initialContent));
   }, [lab]);
 
   const editorConfig = useMemo(
@@ -1784,9 +2059,9 @@ function WordLabPanel({ lab }: { lab: WordLab }) {
       toolbar: ["undo", "redo", "|", "heading", "|", "bold", "italic", "link", "|", "bulletedList", "numberedList", "|", "insertTable"],
       heading: {
         options: [
-          { model: "paragraph", title: "Paragraph", class: "ck-heading_paragraph" },
-          { model: "heading1", view: "h2", title: "Heading 1", class: "ck-heading_heading1" },
-          { model: "heading2", view: "h3", title: "Heading 2", class: "ck-heading_heading2" },
+          { model: "paragraph", title: "Đoạn văn thường", class: "ck-heading_paragraph" },
+          { model: "heading1", view: "h2", title: "Tiêu đề cấp 1", class: "ck-heading_heading1" },
+          { model: "heading2", view: "h3", title: "Tiêu đề cấp 2", class: "ck-heading_heading2" },
         ],
       },
       table: {
@@ -1800,7 +2075,7 @@ function WordLabPanel({ lab }: { lab: WordLab }) {
     <section className="learning-block word-lab">
       <div className="word-lab-head">
         <div>
-          <p className="eyebrow">Word lab</p>
+          <p className="eyebrow">Thực hành Word</p>
           <h3>{lab.title}</h3>
           <p>{lab.brief}</p>
         </div>
@@ -1811,7 +2086,7 @@ function WordLabPanel({ lab }: { lab: WordLab }) {
 
       <div className="word-lab-grid">
         <aside className="lab-brief">
-          <strong>Yêu cầu lab</strong>
+          <strong>Yêu cầu thực hành</strong>
           <ol>
             {lab.instructions.map((instruction) => (
               <li key={instruction}>{instruction}</li>
@@ -1828,16 +2103,77 @@ function WordLabPanel({ lab }: { lab: WordLab }) {
         </aside>
 
         <div className="word-editor-shell">
-          <CKEditor
-            editor={ClassicEditor}
-            config={editorConfig}
-            data={lab.initialContent}
-            onChange={(_, editor) => setContent(editor.getData())}
-          />
+          <div className="word-lab-ruler" aria-hidden="true">
+            <span>0</span><span>2</span><span>4</span><span>6</span><span>8</span><span>10</span><span>12</span><span>14</span><span>16</span>
+          </div>
+          <div className="word-paginated-document" style={{ "--page-count": pageCount } as CSSProperties}>
+            <CKEditor
+              editor={ClassicEditor}
+              config={editorConfig}
+              data={lab.initialContent.replace("<!--pagebreak-->", "")}
+              onChange={(_, editor) => {
+                const nextContent = editor.getData();
+                setContent(nextContent);
+                setPageCount(calculateLabPageCount(nextContent));
+              }}
+            />
+            <div className="word-page-guides" aria-hidden="true">
+              {Array.from({ length: pageCount }, (_, index) => (
+                <div key={index} style={{ top: `${index * 984}px` }}>
+                  <span>Trang {index + 1}</span>
+                  <b>{index + 1}</b>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="word-lab-status">
+            <span>Trang 1 / {pageCount}</span>
+            <span>{pageCount} trang</span>
+          </div>
         </div>
       </div>
     </section>
   );
+}
+
+function getLessonLab(lesson: Lesson): WordLab {
+  if (lesson.lab) return lesson.lab;
+
+  const keyCheckpoint = lesson.checkpoints[0] ?? lesson.title;
+  const confirmation = `Đã hoàn thành bài ${lesson.title}`;
+  const requiresTable = ["objects-captions-citations", "academic-forms-appendix-export", "administrative-documents", "mail-merge"].includes(lesson.id);
+  const secondPageTask = requiresTable
+    ? "Tạo một bảng trên trang 2 để tổng hợp ít nhất hai nội dung quan trọng của bài."
+    : "Chuyển các thao tác chính trên trang 2 thành danh sách dấu đầu dòng hoặc đánh số.";
+
+  return {
+    title: `Lab: ${lesson.title}`,
+    brief: `Thực hành trực tiếp các kỹ năng trọng tâm của bài “${lesson.title}” trên tài liệu Word có phân trang.`,
+    initialContent: [
+      `<p>${lesson.title}</p><p>${lesson.outcome}</p><p>Kỹ năng trọng tâm: ${keyCheckpoint}</p>`,
+      `<p>Các thao tác cần thực hiện</p>${lesson.steps.slice(0, 4).map((step) => `<p>${step}</p>`).join("")}<p>Thêm phần xác nhận hoàn thành ở cuối tài liệu.</p>`,
+    ].join(""),
+    instructions: [
+      "Định dạng tiêu đề bài học thành Tiêu đề cấp 1.",
+      `In đậm kỹ năng trọng tâm “${keyCheckpoint}”.`,
+      secondPageTask,
+      `Thêm chính xác dòng “${confirmation}” vào cuối tài liệu.`,
+    ],
+    checks: [
+      { id: `${lesson.id}-heading`, label: "Có tiêu đề cấp 1", type: "heading", value: "h2" },
+      { id: `${lesson.id}-bold`, label: "Có kỹ năng trọng tâm được in đậm", type: "bold" },
+      { id: `${lesson.id}-structure`, label: requiresTable ? "Có bảng tổng hợp" : "Có danh sách thao tác", type: requiresTable ? "table" : "list" },
+      { id: `${lesson.id}-confirm`, label: "Có dòng xác nhận hoàn thành", type: "contains", value: confirmation },
+    ],
+  };
+}
+
+function calculateLabPageCount(html: string) {
+  const document = new DOMParser().parseFromString(html, "text/html");
+  const textLength = document.body.textContent?.replace(/\s+/g, " ").trim().length ?? 0;
+  const blockCount = document.body.querySelectorAll("p, h1, h2, h3, li, tr").length;
+  const weightedContent = textLength + blockCount * 90;
+  return Math.max(1, Math.ceil(weightedContent / 2200));
 }
 
 function evaluateLabCheck(html: string, check: WordLabCheck) {
@@ -2084,57 +2420,57 @@ function mapLessonToSkill(lessonId: string) {
 function getMosTheory(lesson: Lesson): MosTheory {
   const theory: Record<string, { objective: string; body: string; bullets: string[] }> = {
     "page-setup-document-properties": {
-      objective: "Manage documents - Format documents",
+      objective: "Quản lý và định dạng tài liệu",
       body: "Trong MOS Word 2021, định dạng tài liệu không chỉ là làm đẹp. Học viên cần kiểm soát page setup, vùng in, hướng giấy, lề, theme/font và kiểm tra trước khi in hoặc xuất PDF.",
       bullets: ["Thiết lập Size, Orientation, Margins trước khi nhập nhiều nội dung.", "Dùng Print Preview để phát hiện tràn lề, sai khổ giấy, sai hướng trang.", "Không dùng Space hoặc Enter để thay thế lề, tab, page break hay section break."],
     },
     "normal-style-paragraph": {
-      objective: "Insert and format text, paragraphs, and sections",
+      objective: "Chèn và định dạng văn bản, đoạn văn, phân đoạn",
       body: "MOS chấm khả năng dùng công cụ định dạng đúng chỗ: Style, Paragraph, indentation, spacing và line spacing. Normal Style giúp toàn bộ thân bài đồng bộ thay vì sửa thủ công từng đoạn.",
       bullets: ["Ưu tiên Modify Style thay vì quét chọn toàn bộ rồi chỉnh rời rạc.", "First line indent và spacing phải đến từ Paragraph, không phải Space/Enter.", "Justify, line spacing và font size cần thống nhất trên toàn tài liệu."],
     },
     "heading-toc-navigation": {
-      objective: "Create and manage reference tables",
+      objective: "Tạo và quản lý mục lục, bảng tham chiếu",
       body: "Mục lục tự động trong Word phụ thuộc vào Heading Styles. Nếu chỉ tô đậm hoặc phóng to tiêu đề, Word không hiểu đó là cấu trúc tài liệu.",
       bullets: ["Heading 1/2/3 tạo cấu trúc cho Navigation Pane và Table of Contents.", "Sau khi sửa tiêu đề hoặc thêm mục, phải Update entire table.", "Không gõ mục lục thủ công bằng dấu chấm vì số trang sẽ sai khi nội dung đổi."],
     },
     "page-number-section-break": {
-      objective: "Create and configure document sections",
+      objective: "Tạo và cấu hình các phân đoạn tài liệu",
       body: "Section là ranh giới để mỗi phần có header/footer, số trang, hướng giấy hoặc bố cục riêng. Đây là nhóm kỹ năng rất hay xuất hiện trong bài thi MOS.",
       bullets: ["Page Break chỉ sang trang mới; Section Break tạo vùng cấu hình riêng.", "Muốn bìa không số nhưng nội dung bắt đầu từ 1, cần Section Break và Format Page Numbers.", "Link to Previous là điểm phải kiểm tra khi header/footer nối sai."],
     },
     "objects-captions-citations": {
-      objective: "Insert graphic elements and create reference elements",
+      objective: "Chèn hình ảnh và tạo thành phần tham chiếu",
       body: "Với tài liệu học thuật, hình/bảng cần được chèn, căn, đặt Wrap Text và đánh caption bằng công cụ References để có thể cập nhật tự động.",
       bullets: ["Không gõ caption bằng tay nếu tài liệu có nhiều hình/bảng.", "Cross-reference giúp tham chiếu tự cập nhật khi số thứ tự thay đổi.", "Wrap Text quyết định ảnh có đẩy chữ, che chữ hay đứng đúng vị trí."],
     },
     "academic-forms-appendix-export": {
-      objective: "Manage tables, lists, and document output",
+      objective: "Quản lý bảng, danh sách và xuất tài liệu",
       body: "Biểu mẫu, phụ lục và phiếu khảo sát trong MOS thường kiểm tra Table, checkbox/symbol, tab leader, heading và xuất file đúng định dạng.",
       bullets: ["Dùng Table để giữ bố cục biểu mẫu ổn định.", "Tab leader tốt hơn gõ dấu chấm thủ công.", "Trước khi nộp, mở lại PDF hoặc Print Preview để kiểm tra font và layout."],
     },
     "administrative-documents": {
-      objective: "Format documents and inspect documents",
+      objective: "Định dạng và kiểm tra tài liệu",
       body: "Văn bản hành chính cần bố cục ổn định, căn chỉnh bằng công cụ Word và kiểm tra thông tin ẩn trước khi gửi.",
       bullets: ["Dùng Center, table không viền hoặc tab để căn thay vì Space.", "Logo/chữ ký cần Wrap Text phù hợp để không phá bố cục.", "Inspect Document giúp phát hiện metadata hoặc comment ẩn."],
     },
     "tips-shortcuts": {
-      objective: "Efficient document editing",
+      objective: "Chỉnh sửa tài liệu hiệu quả",
       body: "Phím tắt không phải mục tiêu riêng, nhưng là kỹ năng tăng tốc trong bài thi MOS vì thời gian giới hạn.",
       bullets: ["Học phím tắt theo tình huống: căn, lưu, ngắt trang, cập nhật field.", "F4 hữu ích để lặp lại thao tác định dạng gần nhất.", "Shift+F3 giúp xử lý nhanh chữ hoa/thường khi đề yêu cầu."],
     },
     "common-errors": {
-      objective: "Inspect, troubleshoot, and update document elements",
+      objective: "Kiểm tra, sửa lỗi và cập nhật thành phần tài liệu",
       body: "Khi tài liệu lỗi, MOS yêu cầu chọn đúng nhóm công cụ để sửa: formatting, breaks, pictures, tables, fields hoặc page numbering.",
       bullets: ["Bật Show/Hide để tìm Enter dư, tab, page break và section break.", "Dùng Clear Formatting/Keep Text Only khi copy làm nhảy font.", "Ctrl+A rồi F9 giúp cập nhật toàn bộ field như mục lục, caption, cross-reference."],
     },
     "mail-merge": {
-      objective: "Create mail merge documents",
+      objective: "Tạo tài liệu trộn thư",
       body: "Mail Merge kiểm tra quy trình trọn vẹn: chọn loại tài liệu, kết nối nguồn dữ liệu, chèn merge field, preview và finish merge.",
       bullets: ["Nguồn dữ liệu phải có header rõ, không gộp ô, không dòng trống đầu bảng.", "Merge field là placeholder, không phải text gõ tay.", "Preview Results trước khi Finish & Merge để phát hiện dữ liệu dài hoặc thiếu."],
     },
     "review-protect-compare": {
-      objective: "Manage document collaboration",
+      objective: "Quản lý cộng tác trên tài liệu",
       body: "Nhóm Review trong MOS tập trung vào Track Changes, Comments, Accept/Reject, Protect Document và Compare.",
       bullets: ["Track Changes ghi lại chỉnh sửa; Comments dùng để trao đổi/góp ý.", "Ẩn markup không đồng nghĩa với xóa thay đổi.", "Trước bản cuối, kiểm tra còn comment hoặc tracked changes nào không."],
     },

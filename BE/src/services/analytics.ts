@@ -1,28 +1,46 @@
 import { collections, withoutMongoId } from "../db.js";
-import type { AttemptAnswer, ExamAttempt, Mastery, MosDomain, Question, User } from "../types.js";
+import type { AttemptAnswer, ExamAttempt, Mastery, MosDomain, PracticalAttempt, PracticalTest, Question, User } from "../types.js";
 
 export async function getStudentAnalytics(studentId: string) {
-  const [student, studentAttempts, questions] = await Promise.all([
+  const [student, studentAttempts, practicalAttempts, practicalTests, questions] = await Promise.all([
     collections().users.findOne({ id: studentId }, withoutMongoId<User>()),
     collections()
       .attempts.find({ studentId, submittedAt: { $exists: true } }, withoutMongoId<ExamAttempt>())
       .toArray(),
+    collections()
+      .practicalAttempts.find({ studentId, submittedAt: { $exists: true } }, withoutMongoId<PracticalAttempt>())
+      .toArray(),
+    collections().practicalTests.find({}, withoutMongoId<PracticalTest>()).toArray(),
     collections().questions.find({}, withoutMongoId<Question>()).toArray(),
   ]);
 
-  const mastery = buildMastery(studentId, studentAttempts, questions);
-  const domainMastery = buildDomainMastery(studentAttempts, questions);
+  const practicalTestIds = new Set(practicalTests.map((test) => test.id));
+  const activePracticalAttempts = practicalAttempts.filter((attempt) => practicalTestIds.has(attempt.practicalTestId));
+  const mastery = buildMastery(studentId, studentAttempts, questions, activePracticalAttempts, practicalTests);
+  const domainMastery = buildDomainMastery(studentAttempts, questions, activePracticalAttempts, practicalTests);
   const recommendations = buildRecommendations(mastery);
   const latestAttempt = [...studentAttempts].sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
+  const combinedAttempts = [
+    ...studentAttempts.map((attempt) => ({ testId: attempt.blueprintId, score: attempt.mosScore, submittedAt: attempt.submittedAt ?? attempt.startedAt })),
+    ...activePracticalAttempts.map((attempt) => ({ testId: attempt.practicalTestId, score: attempt.score, submittedAt: attempt.submittedAt ?? attempt.startedAt })),
+  ];
+  const latestCombinedAttempt = [...combinedAttempts].sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))[0];
+  const bestScoresByTest = [...combinedAttempts.reduce((scores, attempt) => {
+    scores.set(attempt.testId, Math.max(scores.get(attempt.testId) ?? 0, attempt.score));
+    return scores;
+  }, new Map<string, number>()).values()];
+  const processMosScore = average(bestScoresByTest);
 
   return {
     student,
     summary: {
-      attempts: studentAttempts.length,
-      averageMosScore: average(studentAttempts.map((attempt) => attempt.mosScore)),
-      bestMosScore: Math.max(0, ...studentAttempts.map((attempt) => attempt.mosScore)),
-      latestMosScore: latestAttempt?.mosScore ?? 0,
-      passReady: (latestAttempt?.mosScore ?? 0) >= 80,
+      attempts: combinedAttempts.length,
+      completedTests: bestScoresByTest.length,
+      processMosScore,
+      averageMosScore: average(combinedAttempts.map((attempt) => attempt.score)),
+      bestMosScore: Math.max(0, ...combinedAttempts.map((attempt) => attempt.score)),
+      latestMosScore: latestCombinedAttempt?.score ?? 0,
+      passReady: processMosScore >= 80,
     },
     domainMastery,
     skillMastery: mastery,
@@ -44,7 +62,7 @@ export async function getStudentPersonalization(studentId: string) {
   return {
     student: analytics.student,
     readiness: passReady ? "exam-ready" : "needs-practice",
-    mosScore: analytics.summary.latestMosScore,
+    mosScore: analytics.summary.processMosScore,
     summary: analytics.summary,
     domainMastery: analytics.domainMastery,
     skillMastery: analytics.skillMastery,
@@ -52,7 +70,7 @@ export async function getStudentPersonalization(studentId: string) {
     recommendedLessonId,
     reason:
       weakSkills.length > 0
-        ? `Hệ thống phát hiện kỹ năng ${nextFocusLabel} còn yếu dựa trên các câu test đã nộp, nên ưu tiên ôn lại bài liên quan trước khi làm đề tiếp.`
+        ? `Hệ thống phát hiện kỹ năng ${nextFocusLabel} còn yếu dựa trên cả bài trắc nghiệm và bài mô phỏng đã nộp, nên ưu tiên ôn lại bài liên quan trước khi làm đề tiếp.`
         : "Kết quả hiện tại ổn định, nên tiếp tục bài kế tiếp và làm thêm đề đồng bộ để giữ nhịp luyện tập.",
     weakSkills,
     recommendations: analytics.recommendations,
@@ -61,7 +79,7 @@ export async function getStudentPersonalization(studentId: string) {
     learningRules: [
       "Hoàn thành checklist bài học để mở khóa gợi ý tiếp theo.",
       "Nếu bài test dưới 80 điểm, hệ thống ưu tiên ôn lại trước khi chuyển sang đề khó hơn.",
-      "Nếu một kỹ năng có tỷ lệ đúng thấp trong nhiều câu test, lộ trình sẽ ưu tiên bài học liên quan kỹ năng đó.",
+      "Nếu một kỹ năng có tỷ lệ đạt thấp trong nhiều câu trắc nghiệm hoặc tiêu chí mô phỏng, lộ trình sẽ ưu tiên bài học liên quan kỹ năng đó.",
     ],
   };
 }
@@ -96,7 +114,13 @@ export async function getAdminOverview() {
   };
 }
 
-function buildMastery(studentId: string, studentAttempts: ExamAttempt[], questions: Question[]): Mastery[] {
+function buildMastery(
+  studentId: string,
+  studentAttempts: ExamAttempt[],
+  questions: Question[],
+  practicalAttempts: PracticalAttempt[] = [],
+  practicalTests: PracticalTest[] = [],
+): Mastery[] {
   const buckets = new Map<string, { attempts: number; correct: number; seconds: number; lastPracticedAt: string }>();
   const questionMap = new Map(questions.map((question) => [question.id, question]));
 
@@ -120,6 +144,27 @@ function buildMastery(studentId: string, studentAttempts: ExamAttempt[], questio
     }
   }
 
+  const practicalTestMap = new Map(practicalTests.map((test) => [test.id, test]));
+  for (const attempt of practicalAttempts) {
+    const test = practicalTestMap.get(attempt.practicalTestId);
+    if (!test) continue;
+    const taskIndexes = new Map(test.tasks.map((task, index) => [task.id, index]));
+    for (const result of attempt.checkResults) {
+      for (const skillTag of getPracticalSkillTags(test.lessonId, taskIndexes.get(result.taskId) ?? 0)) {
+        const current = buckets.get(skillTag) ?? {
+          attempts: 0,
+          correct: 0,
+          seconds: 0,
+          lastPracticedAt: attempt.submittedAt ?? attempt.startedAt,
+        };
+        current.attempts += 1;
+        current.correct += result.passed ? 1 : 0;
+        current.lastPracticedAt = attempt.submittedAt ?? attempt.startedAt;
+        buckets.set(skillTag, current);
+      }
+    }
+  }
+
   return [...buckets.entries()]
     .map(([skillTag, bucket]) => ({
       studentId,
@@ -133,7 +178,12 @@ function buildMastery(studentId: string, studentAttempts: ExamAttempt[], questio
     .sort((a, b) => a.masteryPercent - b.masteryPercent);
 }
 
-function buildDomainMastery(studentAttempts: ExamAttempt[], questions: Question[]) {
+function buildDomainMastery(
+  studentAttempts: ExamAttempt[],
+  questions: Question[],
+  practicalAttempts: PracticalAttempt[] = [],
+  practicalTests: PracticalTest[] = [],
+) {
   const buckets = new Map<MosDomain, { attempts: number; correct: number }>();
   const questionMap = new Map(questions.map((question) => [question.id, question]));
 
@@ -148,11 +198,51 @@ function buildDomainMastery(studentAttempts: ExamAttempt[], questions: Question[
     }
   }
 
+  const practicalTestMap = new Map(practicalTests.map((test) => [test.id, test]));
+  for (const attempt of practicalAttempts) {
+    const test = practicalTestMap.get(attempt.practicalTestId);
+    if (!test) continue;
+    const taskIndexes = new Map(test.tasks.map((task, index) => [task.id, index]));
+    for (const result of attempt.checkResults) {
+      const domain = getPracticalDomain(test.lessonId, taskIndexes.get(result.taskId) ?? 0);
+      const current = buckets.get(domain) ?? { attempts: 0, correct: 0 };
+      current.attempts += 1;
+      current.correct += result.passed ? 1 : 0;
+      buckets.set(domain, current);
+    }
+  }
+
   return [...buckets.entries()].map(([domain, bucket]) => ({
     domain,
     masteryPercent: percent(bucket.correct, bucket.attempts),
     attempts: bucket.attempts,
   }));
+}
+
+const practicalSkillMap: Record<string, { domain: MosDomain; skillTags: string[] }> = {
+  "page-setup-document-properties": { domain: "manage-documents", skillTags: ["layout", "page-setup", "print-preview"] },
+  "normal-style-paragraph": { domain: "insert-format-text", skillTags: ["paragraph", "normal-style", "line-spacing"] },
+  "heading-toc-navigation": { domain: "create-manage-references", skillTags: ["heading", "toc", "field-update"] },
+  "page-number-section-break": { domain: "manage-documents", skillTags: ["section-page-number", "header-footer", "page-number"] },
+  "objects-captions-citations": { domain: "insert-format-graphic-elements", skillTags: ["caption", "cross-reference", "wrap-text"] },
+  "academic-forms-appendix-export": { domain: "manage-tables-lists", skillTags: ["table", "form-layout"] },
+  "administrative-documents": { domain: "manage-documents", skillTags: ["document-format", "official-layout"] },
+  "tips-shortcuts": { domain: "insert-format-text", skillTags: ["shortcut-speed", "editing-speed"] },
+  "common-errors": { domain: "manage-documents", skillTags: ["troubleshooting", "document-format"] },
+  "mail-merge": { domain: "manage-documents", skillTags: ["mail-merge", "data-source", "preview-results"] },
+  "review-protect-compare": { domain: "manage-collaboration", skillTags: ["track-changes", "comments", "protect-document"] },
+};
+
+const practicalLessonOrder = Object.keys(practicalSkillMap);
+
+function getPracticalSkillTags(lessonId: string | undefined, taskIndex: number) {
+  const resolvedLessonId = lessonId ?? practicalLessonOrder[taskIndex % practicalLessonOrder.length];
+  return practicalSkillMap[resolvedLessonId]?.skillTags ?? ["page-setup"];
+}
+
+function getPracticalDomain(lessonId: string | undefined, taskIndex: number) {
+  const resolvedLessonId = lessonId ?? practicalLessonOrder[taskIndex % practicalLessonOrder.length];
+  return practicalSkillMap[resolvedLessonId]?.domain ?? "manage-documents";
 }
 
 function buildRecommendations(mastery: Mastery[]) {

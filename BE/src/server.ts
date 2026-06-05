@@ -17,6 +17,13 @@ import {
   submitAttempt,
 } from "./services/examEngine.js";
 import type { ExamBlueprint, Question, User } from "./types.js";
+import {
+  ensureDefaultPracticalTests,
+  listPracticalTests,
+  listStudentPracticalAttempts,
+  startPracticalAttempt,
+  submitPracticalAttempt,
+} from "./services/practicalExamEngine.js";
 
 const app = express();
 const port = Number(process.env.PORT ?? 4000);
@@ -138,6 +145,34 @@ app.post("/api/attempts/:attemptId/submit", async (request, response) => {
   }
 });
 
+app.get("/api/practical-tests", async (_request, response) => {
+  response.json(await listPracticalTests());
+});
+
+app.post("/api/practical-tests/:testId/start", async (request, response) => {
+  const parsed = z.object({ studentId: z.string().min(1) }).safeParse(request.body);
+  if (!parsed.success) return response.status(400).json({ error: parsed.error.flatten() });
+  try {
+    response.status(201).json(await startPracticalAttempt(parsed.data.studentId, request.params.testId));
+  } catch (error) {
+    response.status(404).json({ error: getErrorMessage(error) });
+  }
+});
+
+app.post("/api/practical-attempts/:attemptId/submit", async (request, response) => {
+  const parsed = z.object({ content: z.string().max(500_000) }).safeParse(request.body);
+  if (!parsed.success) return response.status(400).json({ error: parsed.error.flatten() });
+  try {
+    response.json(await submitPracticalAttempt(request.params.attemptId, parsed.data.content));
+  } catch (error) {
+    response.status(400).json({ error: getErrorMessage(error) });
+  }
+});
+
+app.get("/api/students/:studentId/practical-attempts", async (request, response) => {
+  response.json(await listStudentPracticalAttempts(request.params.studentId));
+});
+
 app.get("/api/students/:studentId/analytics", async (request, response) => {
   try {
     response.json(await getStudentAnalytics(request.params.studentId));
@@ -197,6 +232,7 @@ app.get("/api/meta", async (_request, response) => {
 });
 
 await connectDb();
+await ensureDefaultPracticalTests();
 
 app.listen(port, () => {
   console.log(`MOS education API running on http://localhost:${port}`);

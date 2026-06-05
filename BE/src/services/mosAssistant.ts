@@ -64,7 +64,7 @@ async function buildContextText(context?: AssistantContext) {
     if (student) lines.push(`Học viên: ${student.name}`);
     const weakSkills = analytics?.skillMastery?.slice(0, 3).map(formatSkill).join(", ");
     if (weakSkills) lines.push(`Skill yếu gần đây: ${weakSkills}`);
-    if (analytics?.summary) lines.push(`MOS score gần nhất: ${analytics.summary.latestMosScore}`);
+    if (analytics?.summary) lines.push(`Điểm MOS quá trình: ${analytics.summary.processMosScore}`);
   }
 
   return lines.join("\n");
