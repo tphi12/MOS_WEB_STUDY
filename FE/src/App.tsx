@@ -50,6 +50,8 @@ import {
   X,
 } from "lucide-react";
 import { groupLabels, lessons, shortcuts } from "./data";
+import { collectOfficeDocumentSnapshot, loadExamIntoWord, waitForWordAddin } from "./officeWord";
+import type { OfficeDocumentSnapshot } from "./officeWord";
 import type { Lesson, Shortcut, WordLab, WordLabCheck } from "./types";
 import "ckeditor5/ckeditor5.css";
 
@@ -176,6 +178,7 @@ type PracticalTest = {
   title: string;
   description: string;
   lessonId?: string;
+  deliveryMode?: "simulation" | "office-addin";
   durationMinutes: number;
   initialContent: string;
   tasks: Array<{
@@ -253,7 +256,7 @@ type AssistantContext = {
   studentId?: string;
 };
 
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
+const API_URL = import.meta.env.VITE_API_URL ?? (window.location.protocol === "https:" ? "" : "http://localhost:4000");
 const AUTH_STORAGE_KEY = "mos-word-auth-user";
 
 const shortcutCategories: Array<Shortcut["category"] | "Tất cả"> = [
@@ -1390,6 +1393,9 @@ function TestsPage({
   const [practicalAttempt, setPracticalAttempt] = useState<PracticalAttempt | null>(null);
   const [activePracticalTest, setActivePracticalTest] = useState<PracticalTest | null>(null);
   const [practicalContent, setPracticalContent] = useState("");
+  const [officeSnapshot, setOfficeSnapshot] = useState<OfficeDocumentSnapshot | null>(null);
+  const [officeReady, setOfficeReady] = useState(false);
+  const [officeStatus, setOfficeStatus] = useState("");
   const [practicalResult, setPracticalResult] = useState<PracticalAttempt | null>(null);
   const [practicalHistory, setPracticalHistory] = useState<PracticalAttempt[]>([]);
   const [timeRemaining, setTimeRemaining] = useState(0);
@@ -1397,6 +1403,7 @@ function TestsPage({
   const [error, setError] = useState("");
   const autoSubmittedAttemptId = useRef<string | null>(null);
   const autoSubmittedPracticalAttemptId = useRef<string | null>(null);
+  const loadedOfficeAttemptId = useRef<string | null>(null);
 
   const activeBlueprint = blueprints.find((blueprint) => blueprint.id === attempt?.blueprintId);
   const answeredCount = questions.filter((question) => answers[question.id]).length;
@@ -1430,6 +1437,18 @@ function TestsPage({
   }, []);
 
   useEffect(() => {
+    let active = true;
+    waitForWordAddin(5_000).then((ready) => {
+      if (!active) return;
+      setOfficeReady(ready);
+      if (ready) setOfficeStatus("Office.js đã kết nối với tài liệu Word.");
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
     fetch(`${API_URL}/api/practical-tests`)
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error("Cannot load practical tests"))))
       .then((data: PracticalTest[]) => setPracticalTests(data))
@@ -1446,6 +1465,29 @@ function TestsPage({
     loadAttemptHistory(authUser.id);
     loadPracticalHistory(authUser.id);
   }, [authUser]);
+
+  useEffect(() => {
+    if (!authUser || !officeReady || practicalAttempt || practicalResult) return;
+    let active = true;
+    fetch(`${API_URL}/api/students/${authUser.id}/active-office-practical-attempt`)
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error("No active Office exam"))))
+      .then(async (data: { attempt: PracticalAttempt; test: PracticalTest }) => {
+        if (!active || loadedOfficeAttemptId.current === data.attempt.id) return;
+        loadedOfficeAttemptId.current = data.attempt.id;
+        setPracticalAttempt(data.attempt);
+        setActivePracticalTest(data.test);
+        setPracticalContent(data.test.initialContent);
+        setAttemptStartedAt(Date.parse(data.attempt.startedAt) || Date.now());
+        setTimeRemaining(data.test.durationMinutes * 60);
+        setOfficeStatus("Đã nhận đề từ website. Đang nạp nội dung vào tài liệu Word...");
+        await loadExamIntoWord(data.test.initialContent);
+        if (active) setOfficeStatus("Đề đã được nạp vào Word. Hoàn thành yêu cầu rồi bấm Đọc và nộp tài liệu Word.");
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [authUser, officeReady, practicalAttempt, practicalResult]);
 
   useEffect(() => {
     if (!isTakingTest && !isTakingPractical) return;
@@ -1467,13 +1509,29 @@ function TestsPage({
     if (
       !practicalAttempt ||
       !isTakingPractical ||
+      (activePracticalTest?.deliveryMode === "office-addin" && !officeReady) ||
       timeRemaining > 0 ||
       loading ||
       autoSubmittedPracticalAttemptId.current === practicalAttempt.id
     ) return;
     autoSubmittedPracticalAttemptId.current = practicalAttempt.id;
     submitPracticalTest(true);
-  }, [practicalAttempt, isTakingPractical, loading, timeRemaining]);
+  }, [practicalAttempt, activePracticalTest, isTakingPractical, loading, officeReady, timeRemaining]);
+
+  useEffect(() => {
+    if (!practicalAttempt || activePracticalTest?.deliveryMode !== "office-addin" || officeReady || practicalResult) return;
+    const poller = window.setInterval(async () => {
+      const response = await fetch(`${API_URL}/api/practical-attempts/${practicalAttempt.id}`);
+      if (!response.ok) return;
+      const latest = (await response.json()) as PracticalAttempt;
+      if (!latest.submittedAt) return;
+      setPracticalResult(latest);
+      setTimeRemaining(0);
+      setPracticalHistory((current) => [latest, ...current.filter((item) => item.id !== latest.id)]);
+      setOfficeStatus("Word đã nộp bài thành công. Kết quả đã được đồng bộ về website.");
+    }, 2_000);
+    return () => window.clearInterval(poller);
+  }, [activePracticalTest, officeReady, practicalAttempt, practicalResult]);
 
   async function loadAttemptHistory(studentId: string) {
     try {
@@ -1547,10 +1605,29 @@ function TestsPage({
       setPracticalAttempt(data.attempt);
       setActivePracticalTest(data.test);
       setPracticalContent(data.test.initialContent);
+      setOfficeSnapshot(null);
+      setOfficeStatus(data.test.deliveryMode === "office-addin" ? "Đang kiểm tra kết nối Office.js..." : "");
       setAttemptStartedAt(Date.now());
       setTimeRemaining(data.test.durationMinutes * 60);
-    } catch {
-      setError("Không bắt đầu được bài thi thực hành. Hãy kiểm tra backend.");
+      if (data.test.deliveryMode === "office-addin") {
+        const ready = await waitForWordAddin(1_000);
+        setOfficeReady(ready);
+        if (ready) {
+          loadedOfficeAttemptId.current = data.attempt.id;
+          await loadExamIntoWord(data.test.initialContent);
+          setOfficeStatus("Đề đã được nạp vào Word.");
+        } else {
+          const launchResponse = await fetch(`${API_URL}/api/local-office/launch`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ attemptId: data.attempt.id }),
+          });
+          if (!launchResponse.ok) throw new Error("Không thể mở Microsoft Word từ local launcher");
+          setOfficeStatus("Microsoft Word đang được mở. Đăng nhập trong Task Pane nếu được yêu cầu.");
+        }
+      }
+    } catch (startError) {
+      setError(startError instanceof Error ? startError.message : "Không bắt đầu được bài thi thực hành. Hãy kiểm tra backend.");
     } finally {
       setLoading(false);
     }
@@ -1588,14 +1665,21 @@ function TestsPage({
   }
 
   async function submitPracticalTest(isAutoSubmit = false) {
-    if (!practicalAttempt) return;
+    if (!practicalAttempt || !activePracticalTest) return;
     setLoading(true);
     setError("");
     try {
+      const snapshot = activePracticalTest.deliveryMode === "office-addin"
+        ? await collectOfficeDocumentSnapshot()
+        : officeSnapshot;
+      if (snapshot) {
+        setOfficeSnapshot(snapshot);
+        setOfficeStatus(`Đã đọc ${snapshot.paragraphs.length} đoạn văn và ${snapshot.tables.length} bảng từ Word.`);
+      }
       const response = await fetch(`${API_URL}/api/practical-attempts/${practicalAttempt.id}/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: practicalContent }),
+        body: JSON.stringify({ content: practicalContent, officeSnapshot: snapshot ?? undefined }),
       });
       if (!response.ok) throw new Error("Cannot submit practical test");
       const submitted = (await response.json()) as PracticalAttempt;
@@ -1606,8 +1690,9 @@ function TestsPage({
         const planResponse = await fetch(`${API_URL}/api/students/${authUser.id}/personalization`);
         if (planResponse.ok) onPersonalizationUpdated((await planResponse.json()) as PersonalizedPlan);
       }
-    } catch {
-      setError(isAutoSubmit ? "Hết giờ nhưng chưa nộp được bài thực hành. Hãy bấm nộp lại." : "Không nộp được bài thực hành. Hãy thử lại.");
+    } catch (submitError) {
+      const detail = submitError instanceof Error ? submitError.message : "";
+      setError(isAutoSubmit ? "Hết giờ nhưng chưa nộp được bài thực hành. Hãy bấm nộp lại." : detail || "Không nộp được bài thực hành. Hãy thử lại.");
     } finally {
       setLoading(false);
     }
@@ -1623,7 +1708,27 @@ function TestsPage({
     setPracticalAttempt(null);
     setActivePracticalTest(null);
     setPracticalContent("");
+    setOfficeSnapshot(null);
+    setOfficeStatus("");
     setPracticalResult(null);
+    loadedOfficeAttemptId.current = null;
+  }
+
+  async function prepareOfficeDocument() {
+    if (!activePracticalTest) return;
+    setLoading(true);
+    setError("");
+    try {
+      const ready = await waitForWordAddin();
+      setOfficeReady(ready);
+      if (!ready) throw new Error("Không tìm thấy Microsoft Word. Hãy mở Wordie từ Task Pane của Word, không mở bằng trình duyệt.");
+      await loadExamIntoWord(activePracticalTest.initialContent);
+      setOfficeStatus("Đã nạp nội dung đề vào tài liệu Word. Bắt đầu thực hiện các yêu cầu bên trái.");
+    } catch (officeError) {
+      setError(officeError instanceof Error ? officeError.message : "Không thể nạp đề vào Word.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -1660,6 +1765,31 @@ function TestsPage({
               </div>
               <small>Mỗi tiêu chí chỉ được chấm khi bạn nộp bài. Hệ thống tự động nộp khi hết giờ.</small>
             </aside>
+            {activePracticalTest.deliveryMode === "office-addin" ? (
+              <section className="office-addin-workspace" aria-label="Office Web Add-in">
+                <div className="office-addin-mark">
+                  <FileText size={34} />
+                  <div>
+                    <span>Microsoft Word Task Pane</span>
+                    <h2>Chấm tài liệu thật bằng Office.js</h2>
+                  </div>
+                </div>
+                <p>
+                  Đề này đọc trực tiếp tài liệu Word đang mở. Hệ thống kiểm tra nội dung, Heading, Bold và bảng bằng
+                  <code>Word.run</code> cùng <code>context.sync()</code>.
+                </p>
+                <div className={`office-connection ${officeReady ? "connected" : ""}`}>
+                  <strong>{officeReady ? "Đã kết nối Microsoft Word" : "Chưa kết nối Microsoft Word"}</strong>
+                  <span>{officeStatus}</span>
+                </div>
+                <button type="button" onClick={prepareOfficeDocument} disabled={loading}>
+                  Nạp nội dung đề vào Word
+                </button>
+                <small>
+                  Nếu đang mở bằng trình duyệt, Word sẽ được mở tự động. Hoàn thành và nộp trong Task Pane; điểm sẽ tự đồng bộ về trang web này.
+                </small>
+              </section>
+            ) : (
             <section className="word-simulation" aria-label="Trình mô phỏng Microsoft Word">
               <div className="word-titlebar">
                 <strong>Wordie Document</strong>
@@ -1686,11 +1816,14 @@ function TestsPage({
                 <span>Wordie Simulation</span>
               </div>
             </section>
+            )}
           </div>
 
           <div className="test-submit-bar">
             <span>Nội dung được chấm theo {activePracticalTest.tasks.length} câu và {activePracticalTest.tasks.flatMap((task) => task.checks).length} tiêu chí.</span>
-            <button className="submit-test-button" onClick={() => submitPracticalTest(false)} disabled={loading}>Nộp bài thực hành</button>
+            <button className="submit-test-button" onClick={() => submitPracticalTest(false)} disabled={loading || (activePracticalTest.deliveryMode === "office-addin" && !officeReady)}>
+              {activePracticalTest.deliveryMode === "office-addin" ? "Đọc và nộp tài liệu Word" : "Nộp bài thực hành"}
+            </button>
           </div>
         </main>
       ) : isTakingTest ? (
@@ -1819,8 +1952,8 @@ function TestsPage({
               const best = attempts.length ? Math.max(...attempts.map((item) => item.score)) : null;
               const latest = attempts[0];
               return (
-                <button key={test.id} className="test-card practical-test-card" onClick={() => startPracticalTest(test.id)} disabled={loading}>
-                  <span>{test.durationMinutes === 90 ? "Thực hành cuối khóa" : "Mô phỏng Word"}</span>
+                <button key={test.id} className={`test-card practical-test-card ${test.deliveryMode === "office-addin" ? "office-addin-card" : ""}`} onClick={() => startPracticalTest(test.id)} disabled={loading}>
+                  <span>{test.deliveryMode === "office-addin" ? "Office Web Add-in · Cuối khóa" : test.durationMinutes === 90 ? "Thực hành cuối khóa" : "Mô phỏng Word"}</span>
                   <strong>{test.title}</strong>
                   <small>{test.tasks.length} câu · {test.tasks.flatMap((task) => task.checks).length} tiêu chí · {test.durationMinutes} phút</small>
                   <div className="test-card-meta">
