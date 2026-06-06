@@ -2,7 +2,7 @@ import { collections, withoutMongoId } from "../db.js";
 import type { AttemptAnswer, ExamAttempt, Mastery, MosDomain, PracticalAttempt, PracticalTest, Question, User } from "../types.js";
 
 export async function getStudentAnalytics(studentId: string) {
-  const [student, studentAttempts, practicalAttempts, practicalTests, questions] = await Promise.all([
+  const [student, studentAttempts, practicalAttempts, practicalTests, questions, lessonProgress] = await Promise.all([
     collections().users.findOne({ id: studentId }, withoutMongoId<User>()),
     collections()
       .attempts.find({ studentId, submittedAt: { $exists: true } }, withoutMongoId<ExamAttempt>())
@@ -12,6 +12,7 @@ export async function getStudentAnalytics(studentId: string) {
       .toArray(),
     collections().practicalTests.find({}, withoutMongoId<PracticalTest>()).toArray(),
     collections().questions.find({}, withoutMongoId<Question>()).toArray(),
+    collections().lessonProgress.find({ studentId }, withoutMongoId()).sort({ updatedAt: -1 }).toArray(),
   ]);
 
   const practicalTestIds = new Set(practicalTests.map((test) => test.id));
@@ -46,6 +47,22 @@ export async function getStudentAnalytics(studentId: string) {
     skillMastery: mastery,
     recommendations,
     latestAttempt,
+    scoreTrend: combinedAttempts
+      .sort((a, b) => a.submittedAt.localeCompare(b.submittedAt))
+      .slice(-8)
+      .map((attempt) => ({ score: attempt.score, submittedAt: attempt.submittedAt })),
+    learningHabit: buildLearningHabit(combinedAttempts.map((attempt) => attempt.submittedAt)),
+    averageDurationMinutes: average(
+      studentAttempts.map((attempt) => Math.round(attempt.answers.reduce((sum, answer) => sum + answer.elapsedSeconds, 0) / 60)),
+    ),
+    lessonProgress,
+    localProgress: {
+      activeLessonProgress: lessonProgress[0]?.checklistPercent ?? 0,
+      activeQuizPercent: lessonProgress[0]?.quizPercent ?? 0,
+      startedLessons: lessonProgress.filter((item) => item.checklistPercent > 0 || item.quizPercent > 0).length,
+      completedLessons: lessonProgress.filter((item) => item.completed).length,
+      totalLessons: Math.max(0, ...lessonProgress.map((item) => item.totalLessons)),
+    },
   };
 }
 
@@ -67,6 +84,17 @@ export async function getStudentPersonalization(studentId: string) {
     domainMastery: analytics.domainMastery,
     skillMastery: analytics.skillMastery,
     latestAttempt: analytics.latestAttempt,
+    scoreTrend: analytics.scoreTrend,
+    learningHabit: analytics.learningHabit,
+    averageDurationMinutes: analytics.averageDurationMinutes,
+    lessonProgress: analytics.lessonProgress.map((item) => ({
+      lessonId: item.lessonId,
+      title: item.title,
+      progress: item.checklistPercent,
+      quizPercent: item.quizPercent,
+      scorePercent: item.scorePercent,
+    })),
+    localProgress: analytics.localProgress,
     recommendedLessonId,
     reason:
       weakSkills.length > 0
@@ -85,12 +113,17 @@ export async function getStudentPersonalization(studentId: string) {
 }
 
 export async function getAdminOverview() {
-  const [users, questions, blueprints, submittedAttempts] = await Promise.all([
-    collections().users.find({}, withoutMongoId<User>()).toArray(),
+  const [users, questions, blueprints, submittedAttempts, practicalAttempts] = await Promise.all([
+    collections().users.find({}).toArray(),
     collections().questions.find({}, withoutMongoId<Question>()).toArray(),
     collections().blueprints.find({}, withoutMongoId()).toArray(),
     collections().attempts.find({ submittedAt: { $exists: true } }, withoutMongoId<ExamAttempt>()).toArray(),
+    collections().practicalAttempts.find({ submittedAt: { $exists: true } }, withoutMongoId<PracticalAttempt>()).toArray(),
   ]);
+  const activityDates = [
+    ...submittedAttempts.map((attempt) => attempt.submittedAt ?? attempt.startedAt),
+    ...practicalAttempts.map((attempt) => attempt.submittedAt ?? attempt.startedAt),
+  ];
 
   return {
     totals: {
@@ -111,7 +144,107 @@ export async function getAdminOverview() {
     weakestSkills: getWeakestSkills(submittedAttempts, questions).slice(0, 6),
     hardestQuestions: getHardestQuestions(submittedAttempts, questions).slice(0, 6),
     retentionAlerts: getRetentionAlerts(users, submittedAttempts),
+    registrationTrend: buildRegistrationTrend(users),
+    scoreTrend: buildScoreTrend(submittedAttempts, practicalAttempts),
+    learningHabit: buildLearningHabit(activityDates),
   };
+}
+
+function buildRegistrationTrend(users: Array<User & { _id?: { getTimestamp?: () => Date } }>) {
+  const buckets = createRecentWeekBuckets(12);
+  for (const user of users) {
+    if (user.role !== "student") continue;
+    const createdAt = user.createdAt ?? user._id?.getTimestamp?.().toISOString();
+    if (!createdAt) continue;
+    const key = getWeekKey(new Date(createdAt));
+    const bucket = buckets.find((item) => item.key === key);
+    if (bucket) bucket.count += 1;
+  }
+  return buckets;
+}
+
+function buildScoreTrend(attempts: ExamAttempt[], practicalAttempts: PracticalAttempt[]) {
+  const buckets = createRecentWeekBuckets(12).map((item) => ({ ...item, scores: [] as number[] }));
+  const scores = [
+    ...attempts.map((attempt) => ({ score: attempt.mosScore, date: attempt.submittedAt ?? attempt.startedAt })),
+    ...practicalAttempts.map((attempt) => ({ score: attempt.score, date: attempt.submittedAt ?? attempt.startedAt })),
+  ];
+  for (const item of scores) {
+    const bucket = buckets.find((candidate) => candidate.key === getWeekKey(new Date(item.date)));
+    if (bucket) bucket.scores.push(item.score);
+  }
+  return buckets.map(({ scores: values, ...bucket }) => ({ ...bucket, averageScore: average(values), attempts: values.length }));
+}
+
+function buildLearningHabit(activityDates: string[]) {
+  const byDayHour = Array.from({ length: 7 }, (_, day) => ({
+    day,
+    label: ["Chủ nhật", "Thứ hai", "Thứ ba", "Thứ tư", "Thứ năm", "Thứ sáu", "Thứ bảy"][day],
+    hours: Array.from({ length: 24 }, (_, hour) => ({ hour, count: 0 })),
+  }));
+  const dateCounts = new Map<string, number>();
+
+  for (const value of activityDates) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) continue;
+    byDayHour[date.getDay()].hours[date.getHours()].count += 1;
+    const key = date.toISOString().slice(0, 10);
+    dateCounts.set(key, (dateCounts.get(key) ?? 0) + 1);
+  }
+
+  const activeDates = [...dateCounts.keys()].sort();
+  let currentStreak = 0;
+  if (activeDates.length) {
+    const activeSet = new Set(activeDates);
+    const cursor = new Date(`${activeDates[activeDates.length - 1]}T00:00:00.000Z`);
+    while (activeSet.has(cursor.toISOString().slice(0, 10))) {
+      currentStreak += 1;
+      cursor.setUTCDate(cursor.getUTCDate() - 1);
+    }
+  }
+
+  const peak = byDayHour
+    .flatMap((day) => day.hours.map((hour) => ({ day: day.label, hour: hour.hour, count: hour.count })))
+    .sort((a, b) => b.count - a.count)[0] ?? { day: "", hour: 0, count: 0 };
+
+  return {
+    currentStreak,
+    activeDays: activeDates.length,
+    peak,
+    byDayHour,
+    recentDays: Array.from({ length: 21 }, (_, index) => {
+      const date = new Date();
+      date.setDate(date.getDate() - (20 - index));
+      const key = date.toISOString().slice(0, 10);
+      return { date: key, label: date.toLocaleDateString("vi-VN", { weekday: "short", day: "2-digit", month: "2-digit" }), count: dateCounts.get(key) ?? 0 };
+    }),
+  };
+}
+
+function createRecentWeekBuckets(total: number) {
+  return Array.from({ length: total }, (_, index) => {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() - (total - 1 - index) * 7);
+    const monday = startOfWeek(date);
+    return {
+      key: getWeekKey(monday),
+      label: monday.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" }),
+      count: 0,
+    };
+  });
+}
+
+function startOfWeek(date: Date) {
+  const result = new Date(date);
+  const day = result.getDay();
+  result.setDate(result.getDate() - (day === 0 ? 6 : day - 1));
+  result.setHours(0, 0, 0, 0);
+  return result;
+}
+
+function getWeekKey(date: Date) {
+  return startOfWeek(date).toISOString().slice(0, 10);
 }
 
 function buildMastery(

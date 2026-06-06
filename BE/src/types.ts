@@ -18,6 +18,7 @@ export type User = {
   name: string;
   email: string;
   passwordHash?: string;
+  createdAt?: string;
   lastLoginAt: string;
 };
 
@@ -79,6 +80,23 @@ export type Mastery = {
   avgSeconds: number;
   masteryPercent: number;
   lastPracticedAt: string;
+};
+
+export type LessonProgress = {
+  studentId: string;
+  lessonId: string;
+  title: string;
+  checkedStepIndexes: number[];
+  quizAnswers: Record<string, string>;
+  totalSteps: number;
+  totalLessons: number;
+  totalQuizQuestions: number;
+  correctQuizCount: number;
+  checklistPercent: number;
+  quizPercent: number;
+  scorePercent: number;
+  completed: boolean;
+  updatedAt: string;
 };
 
 export type PracticalCheckType =

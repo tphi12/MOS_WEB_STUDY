@@ -16,12 +16,20 @@ import {
   Undo,
 } from "ckeditor5";
 import {
+  Activity,
+  ArrowUpRight,
+  BarChart3,
   BookOpen,
   Brain,
+  CalendarDays,
   CheckCircle2,
+  ChevronRight,
+  CircleAlert,
   Clock3,
   Clipboard,
+  FileText,
   Filter,
+  Flame,
   GraduationCap,
   Lightbulb,
   Lock,
@@ -34,8 +42,11 @@ import {
   Search,
   Sparkles,
   Target,
+  Timer,
+  TrendingUp,
   RotateCcw,
   UserPlus,
+  Users,
   X,
 } from "lucide-react";
 import { groupLabels, lessons, shortcuts } from "./data";
@@ -113,6 +124,9 @@ type PersonalizedPlan = {
     lastPracticedAt?: string;
   }>;
   latestAttempt?: ExamAttempt;
+  scoreTrend?: Array<{ score: number; submittedAt: string }>;
+  learningHabit?: LearningHabit;
+  averageDurationMinutes?: number;
   recommendedLessonId: string;
   reason: string;
   weakSkills: Array<{ skillTag: string; masteryPercent: number; avgSeconds?: number }>;
@@ -197,6 +211,31 @@ type AuthUser = {
   lastLoginAt: string;
 };
 
+type LearningHabit = {
+  currentStreak: number;
+  activeDays: number;
+  peak: { day: string; hour: number; count: number };
+  byDayHour: Array<{ day: number; label: string; hours: Array<{ hour: number; count: number }> }>;
+  recentDays: Array<{ date: string; label: string; count: number }>;
+};
+
+type LessonProgressRecord = {
+  studentId: string;
+  lessonId: string;
+  title: string;
+  checkedStepIndexes: number[];
+  quizAnswers: Record<string, string>;
+  totalSteps: number;
+  totalLessons: number;
+  totalQuizQuestions: number;
+  correctQuizCount: number;
+  checklistPercent: number;
+  quizPercent: number;
+  scorePercent: number;
+  completed: boolean;
+  updatedAt: string;
+};
+
 type ChatMessage = {
   id: string;
   role: "user" | "assistant";
@@ -269,6 +308,7 @@ export function App() {
   const [customSpotifyError, setCustomSpotifyError] = useState("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [authUser, setAuthUser] = useState<AuthUser | null>(() => readStoredUser());
+  const [progressHydrated, setProgressHydrated] = useState(false);
 
   const activeLesson = orderedLessons.find((lesson) => lesson.id === activeLessonId) ?? orderedLessons[0];
   const activeIndex = orderedLessons.findIndex((lesson) => lesson.id === activeLesson.id);
@@ -297,6 +337,7 @@ export function App() {
   const isLearnRoute = location.pathname === "/learn";
   const isTestsRoute = location.pathname === "/tests";
   const isPersonalizeRoute = location.pathname === "/personalize";
+  const isAdminRoute = location.pathname === "/admin";
 
   const searchResults = useMemo<SearchResult[]>(() => {
     const normalized = query.trim().toLowerCase();
@@ -336,14 +377,69 @@ export function App() {
   useEffect(() => {
     if (!authUser) {
       setRemotePlan(null);
+      setProgressHydrated(false);
       return;
     }
 
-    fetch(`${API_URL}/api/students/${authUser.id}/personalization`)
-      .then((response) => (response.ok ? response.json() : Promise.reject(new Error("Cannot load personalization"))))
-      .then((data: PersonalizedPlan) => setRemotePlan(data))
-      .catch(() => setRemotePlan(null));
+    Promise.all([
+      fetch(`${API_URL}/api/students/${authUser.id}/personalization`).then((response) =>
+        response.ok ? response.json() as Promise<PersonalizedPlan> : Promise.reject(new Error("Cannot load personalization")),
+      ),
+      fetch(`${API_URL}/api/students/${authUser.id}/lesson-progress`).then((response) =>
+        response.ok ? response.json() as Promise<LessonProgressRecord[]> : Promise.reject(new Error("Cannot load lesson progress")),
+      ),
+    ])
+      .then(([plan, progress]) => {
+        setRemotePlan(plan);
+        setCheckedSteps((current) => {
+          const next = { ...current };
+          progress.forEach((item) => item.checkedStepIndexes.forEach((index) => {
+            next[`${item.lessonId}-${index}`] = true;
+          }));
+          return next;
+        });
+        setQuizAnswers((current) => Object.assign({}, current, ...progress.map((item) => item.quizAnswers)));
+        setProgressHydrated(true);
+      })
+      .catch(() => {
+        setRemotePlan(null);
+        setProgressHydrated(true);
+      });
   }, [authUser]);
+
+  useEffect(() => {
+    if (!authUser || !progressHydrated) return;
+    const timer = window.setTimeout(() => {
+      const checkedStepIndexes = activeLesson.steps
+        .map((_, index) => index)
+        .filter((index) => checkedSteps[`${activeLesson.id}-${index}`]);
+      const activeQuizAnswers = Object.fromEntries(
+        knowledgeChecks
+          .map((_, index) => `${activeLesson.id}-mcq-${index}`)
+          .filter((key) => quizAnswers[key])
+          .map((key) => [key, quizAnswers[key]]),
+      );
+
+      fetch(`${API_URL}/api/students/${authUser.id}/lesson-progress/${activeLesson.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: activeLesson.title,
+          checkedStepIndexes,
+          quizAnswers: activeQuizAnswers,
+          totalSteps: activeLesson.steps.length,
+          totalLessons: lessons.length,
+          totalQuizQuestions: knowledgeChecks.length,
+          correctQuizCount,
+        }),
+      })
+        .then((response) => (response.ok ? fetch(`${API_URL}/api/students/${authUser.id}/personalization`) : Promise.reject(new Error("Cannot save lesson progress"))))
+        .then((response) => (response.ok ? response.json() as Promise<PersonalizedPlan> : Promise.reject(new Error("Cannot refresh personalization"))))
+        .then((plan) => setRemotePlan(plan))
+        .catch(() => undefined);
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [activeLesson, authUser, checkedSteps, correctQuizCount, progressHydrated, quizAnswers]);
 
   function handleAuth(user: AuthUser) {
     window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
@@ -354,6 +450,7 @@ export function App() {
     window.localStorage.removeItem(AUTH_STORAGE_KEY);
     setAuthUser(null);
     setRemotePlan(null);
+    setProgressHydrated(false);
   }
 
   function selectLesson(id: string) {
@@ -517,6 +614,8 @@ export function App() {
 
         {isHomeRoute ? (
           <LandingPage lessons={orderedLessons} authUser={authUser} selectLesson={selectLesson} />
+        ) : isAdminRoute ? (
+          <AdminPage />
         ) : isTestsRoute ? (
           <TestsPage lessons={orderedLessons} authUser={authUser} onAuth={handleAuth} onPersonalizationUpdated={setRemotePlan} />
         ) : isPersonalizeRoute ? (
@@ -924,50 +1023,221 @@ function LandingPage({
         <div className="landing-copy">
           <span>Wordie</span>
           <h1>Học Word hiệu quả nhất.</h1>
-          <p>Wordie giúp bạn tự học MOS Word miễn phí, hiệu quả và chất lượng.</p>
+          <p>Học theo lộ trình, luyện thao tác và theo dõi tiến bộ MOS Word.</p>
           <div className="landing-actions">
             <button onClick={() => selectLesson(lessons[0].id)}>Học ngay</button>
-            <Link to="/tests">{authUser ? "Vào phòng test" : "Đăng nhập làm test"}</Link>
+            <Link to="/personalize">Xem tiến độ</Link>
           </div>
         </div>
-        <div className="landing-proof" aria-label="Tổng quan hệ thống">
-          <div>
-            <strong>{lessons.length}</strong>
-            <small>bài học</small>
-          </div>
-          <div>
-            <strong>20</strong>
-            <small>câu mỗi phần</small>
-          </div>
-          <div>
-            <strong>50</strong>
-            <small>câu cuối khóa</small>
-          </div>
+        <div className="landing-proof">
+          <div><strong>{lessons.length}</strong><small>bài học</small></div>
+          <div><strong>{totalMinutes}</strong><small>phút nội dung</small></div>
+          <div><strong>50</strong><small>phút thi thật</small></div>
         </div>
-      </div>
-
-      <div className="home-choice-grid">
-        <article className="home-choice">
-          <BookOpen size={28} />
-          <span>Bài học</span>
-          <h2>{lessons.length} bài học MOS Word</h2>
-          <div className="home-metrics">
-            <strong>{totalMinutes} phút</strong>
-          </div>
-          <button onClick={() => selectLesson(lessons[0].id)}>Mở bài học</button>
-        </article>
-
-        <article className="home-choice test-choice">
-          <Clipboard size={28} />
-          <span>Làm test</span>
-          <h2>20 câu mỗi phần, 50 câu cuối khóa</h2>
-          <div className="home-metrics">
-            <strong>12 bài test</strong>
-          </div>
-          <Link to="/tests">Mở test</Link>
-        </article>
       </div>
     </section>
+  );
+}
+
+type AdminOverview = {
+  totals: { students: number; questions: number; blueprints: number; attempts: number };
+  examQuality: { averageMosScore: number; passRate: number; averageDurationMinutes: number };
+  weakestSkills: Array<{ skillTag: string; masteryPercent: number; attempts: number; avgSeconds: number }>;
+  hardestQuestions: Array<{ questionId: string; title: string; domain: string; wrongRate: number; averageSeconds: number; attempts: number }>;
+  retentionAlerts: Array<{ studentId: string; name: string; inactiveDays: number; lowScoreStreak: boolean; alert: string }>;
+  registrationTrend: Array<{ key: string; label: string; count: number }>;
+  scoreTrend: Array<{ key: string; label: string; averageScore: number; attempts: number }>;
+  learningHabit: LearningHabit;
+};
+
+function AdminPage() {
+  const [overview, setOverview] = useState<AdminOverview | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/admin/overview`)
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error("Cannot load admin overview"))))
+      .then((data: AdminOverview) => setOverview(data))
+      .catch(() => setError("Không thể tải dữ liệu quản trị từ database."));
+  }, []);
+
+  return (
+    <section className="dashboard-page" aria-label="Dashboard quản trị">
+      <div className="dashboard-heading">
+        <div><p className="eyebrow">Trung tâm vận hành</p><h1>Tổng quan nền tảng MOS Word</h1></div>
+      </div>
+      {overview ? <AdminDashboard overview={overview} /> : <div className="dashboard-empty">{error || "Đang tải dữ liệu quản trị..."}</div>}
+    </section>
+  );
+}
+
+function LearnerDashboard({
+  lessons,
+  plan,
+  selectLesson,
+}: {
+  lessons: Lesson[];
+  plan: PersonalizedPlan;
+  selectLesson: (id: string) => void;
+}) {
+  const progress = plan.localProgress?.totalLessons
+    ? Math.round(((plan.localProgress.completedLessons ?? 0) / plan.localProgress.totalLessons) * 100)
+    : 0;
+  const score = plan.summary?.processMosScore ?? plan.mosScore ?? 0;
+  const recommended = lessons.find((lesson) => lesson.id === plan.recommendedLessonId) ?? lessons[0];
+  const skills = normalizeSkillRows(plan.skillMastery, plan.weakSkills).slice(0, 5);
+  const radarValues = skills.map((skill) => skill.masteryPercent);
+  const recentScores = plan.scoreTrend ?? [];
+  const scorePoints = recentScores.map((item, index) => `${recentScores.length === 1 ? 50 : (index / (recentScores.length - 1)) * 100},${100 - item.score}`).join(" ");
+  const habit = plan.learningHabit;
+
+  return (
+    <>
+      <div className="dashboard-kpis">
+        <article className="primary-kpi">
+          <div className="kpi-icon"><Target size={20} /></div>
+          <span>Khả năng đậu dự kiến</span>
+          <strong>{score}%</strong>
+          <small>Điểm quá trình từ các bài đã nộp</small>
+        </article>
+        <article>
+          <div className="kpi-icon"><BookOpen size={20} /></div>
+          <span>Tiến độ lộ trình</span>
+          <strong>{progress}%</strong>
+          <div className="compact-progress"><i style={{ width: `${progress}%` }} /></div>
+        </article>
+        <article>
+          <div className="kpi-icon"><Timer size={20} /></div>
+          <span>Thời gian làm bài</span>
+          <strong>{plan.averageDurationMinutes ?? 0} phút</strong>
+          <small>trung bình các bài trắc nghiệm đã nộp</small>
+        </article>
+        <article>
+          <div className="kpi-icon"><Flame size={20} /></div>
+          <span>Chuỗi học tập</span>
+          <strong>{habit?.currentStreak ?? 0} ngày</strong>
+          <small>{habit?.activeDays ?? 0} ngày đã có hoạt động</small>
+        </article>
+      </div>
+
+      <div className="dashboard-grid learner-grid">
+        <section className="dashboard-panel score-trend-panel">
+          <div className="panel-heading">
+            <div><span>Hiệu suất</span><h2>Xu hướng điểm số</h2></div>
+            <b>5 bài gần nhất</b>
+          </div>
+          <div className="line-chart">
+            <div className="chart-threshold">Mục tiêu 80</div>
+            {recentScores.length ? <><svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="Biểu đồ điểm số gần đây">
+              <defs><linearGradient id="scoreFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#2b579a" stopOpacity=".24" /><stop offset="1" stopColor="#2b579a" stopOpacity="0" /></linearGradient></defs>
+              <polygon points={`0,100 ${scorePoints} 100,100`} fill="url(#scoreFill)" />
+              <polyline points={scorePoints} fill="none" stroke="#2b579a" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
+            </svg>
+            <div className="chart-labels">{recentScores.map((item) => <span key={item.submittedAt}>{item.score}</span>)}</div></> : <div className="chart-empty">Chưa có bài thi đã nộp để vẽ xu hướng điểm.</div>}
+          </div>
+        </section>
+
+        <section className="dashboard-panel next-lesson-panel">
+          <div className="panel-heading"><div><span>Lộ trình cá nhân</span><h2>Tiếp theo dành cho bạn</h2></div><Sparkles size={20} /></div>
+          <div className="path-list">
+            {lessons.slice(0, 3).map((lesson, index) => (
+              <button key={lesson.id} className={lesson.id === recommended.id ? "active" : ""} onClick={() => selectLesson(lesson.id)}>
+                <i>{index + 1}</i><span><strong>{lesson.title}</strong><small>{lesson.minutes} phút · {index === 0 ? "Đang học" : "Chưa bắt đầu"}</small></span><ChevronRight size={17} />
+              </button>
+            ))}
+          </div>
+          <button className="dashboard-action" onClick={() => selectLesson(recommended.id)}>Tiếp tục bài học <ArrowUpRight size={16} /></button>
+        </section>
+
+        <section className="dashboard-panel radar-panel">
+          <div className="panel-heading"><div><span>Skill gap</span><h2>Năng lực theo kỹ năng</h2></div><b>Cập nhật hôm nay</b></div>
+          {radarValues.length ? <SkillRadar values={radarValues} /> : <div className="chart-empty">Chưa có dữ liệu mastery theo kỹ năng.</div>}
+        </section>
+
+        <section className="dashboard-panel improvement-panel">
+          <div className="panel-heading"><div><span>Ưu tiên</span><h2>Cần cải thiện ngay</h2></div><CircleAlert size={20} /></div>
+          <div className="improvement-list">
+            {skills.slice(0, 3).map((skill) => (
+              <div key={skill.skillTag}><span><strong>{formatSkillLabel(skill.skillTag)}</strong><small>{skill.avgSeconds ?? 0}s trung bình · {skill.masteryPercent}% chính xác</small></span><Link to="/tests">Luyện ngay</Link></div>
+            ))}
+            {!skills.length && <div className="chart-empty">Làm test để xác định kỹ năng cần cải thiện.</div>}
+          </div>
+        </section>
+
+        <section className="dashboard-panel streak-panel">
+          <div className="panel-heading"><div><span>Thói quen</span><h2>21 ngày gần đây</h2></div><CalendarDays size={20} /></div>
+          <div className="habit-hours">{habit?.byDayHour.map((day) => <div key={day.day}><strong>{day.label}</strong><span>{day.hours.map((hour) => <i key={hour.hour} className={`level-${Math.min(4, hour.count)}`} title={`${day.label}, ${String(hour.hour).padStart(2, "0")}:00: ${hour.count} hoạt động`} />)}</span></div>)}</div>
+          <p><Flame size={16} /> Khung hoạt động nhiều nhất: <strong>{habit?.peak.count ? `${habit.peak.day}, ${String(habit.peak.hour).padStart(2, "0")}:00` : "Chưa có dữ liệu"}</strong>.</p>
+        </section>
+      </div>
+    </>
+  );
+}
+
+function AdminDashboard({ overview: data }: { overview: AdminOverview }) {
+  const maxRegistrations = Math.max(1, ...data.registrationTrend.map((item) => item.count));
+  const activeScoreTrend = data.scoreTrend.filter((item) => item.attempts > 0);
+  const scorePoints = activeScoreTrend.map((item, index) => `${activeScoreTrend.length === 1 ? 50 : (index / (activeScoreTrend.length - 1)) * 100},${100 - item.averageScore}`).join(" ");
+
+  return (
+    <>
+      <div className="dashboard-kpis admin-kpis">
+        <article className="primary-kpi"><div className="kpi-icon"><Users size={20} /></div><span>Tổng học viên</span><strong>{data.totals.students.toLocaleString("vi-VN")}</strong><small>{data.registrationTrend.reduce((sum, item) => sum + item.count, 0)} đăng ký có ngày tạo trong 12 tuần</small></article>
+        <article><div className="kpi-icon"><Activity size={20} /></div><span>Lượt làm bài</span><strong>{data.totals.attempts.toLocaleString("vi-VN")}</strong><small>trên {data.totals.blueprints} bộ đề</small></article>
+        <article><div className="kpi-icon"><CheckCircle2 size={20} /></div><span>Tỷ lệ đạt</span><strong>{data.examQuality.passRate}%</strong><small>điểm trung bình {data.examQuality.averageMosScore}</small></article>
+        <article><div className="kpi-icon"><Clock3 size={20} /></div><span>Thời gian trung bình</span><strong>{data.examQuality.averageDurationMinutes} phút</strong><small>giới hạn thi thật: 50 phút</small></article>
+      </div>
+      <div className="dashboard-grid admin-grid">
+        <section className="dashboard-panel signup-panel">
+          <div className="panel-heading"><div><span>Tăng trưởng</span><h2>Đăng ký mới</h2></div><b>12 tuần</b></div>
+          <div className="bar-chart">{data.registrationTrend.map((item) => <i key={item.key} style={{ height: `${Math.max(2, (item.count / maxRegistrations) * 100)}%` }} title={`Tuần ${item.label}: ${item.count} đăng ký`}><span>{item.count}</span></i>)}</div>
+          <div className="chart-labels">{data.registrationTrend.map((item) => <span key={item.key}>{item.label}</span>)}</div>
+        </section>
+        <section className="dashboard-panel score-trend-panel">
+          <div className="panel-heading"><div><span>Kết quả thi</span><h2>Điểm trung bình theo tuần</h2></div><b>Database</b></div>
+          <div className="line-chart">
+            {activeScoreTrend.length ? <><svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="Điểm trung bình theo tuần"><polyline points={scorePoints} fill="none" stroke="#2b579a" strokeWidth="2.5" vectorEffect="non-scaling-stroke" /></svg><div className="chart-labels">{activeScoreTrend.map((item) => <span key={item.key}>{item.label}: {item.averageScore}</span>)}</div></> : <div className="chart-empty">Chưa có bài thi đã nộp trong 12 tuần gần đây.</div>}
+          </div>
+        </section>
+        <section className="dashboard-panel quality-panel">
+          <div className="panel-heading"><div><span>Chất lượng đề</span><h2>Câu hỏi khó nhất</h2></div><BarChart3 size={20} /></div>
+          <div className="question-list">{data.hardestQuestions.slice(0, 3).map((question) => <div key={question.questionId}><span><strong>{question.title}</strong><small>{question.attempts} lượt · {question.averageSeconds}s</small></span><b>{question.wrongRate}% sai</b></div>)}</div>
+        </section>
+        <section className="dashboard-panel heatmap-panel">
+          <div className="panel-heading"><div><span>Hành vi</span><h2>Khung giờ học phổ biến</h2></div><b>7 ngày · 24 giờ</b></div>
+          <div className="habit-hours admin-habit-hours">{data.learningHabit.byDayHour.map((day) => <div key={day.day}><strong>{day.label}</strong><span>{day.hours.map((hour) => <i key={hour.hour} className={`level-${Math.min(4, hour.count)}`} title={`${day.label}, ${String(hour.hour).padStart(2, "0")}:00: ${hour.count} hoạt động`} />)}</span></div>)}</div>
+          <p>Đỉnh hoạt động: <strong>{data.learningHabit.peak.count ? `${data.learningHabit.peak.day}, ${String(data.learningHabit.peak.hour).padStart(2, "0")}:00` : "Chưa có dữ liệu"}</strong></p>
+        </section>
+        <section className="dashboard-panel alert-panel">
+          <div className="panel-heading"><div><span>Cần xử lý</span><h2>Cảnh báo vận hành</h2></div><CircleAlert size={20} /></div>
+          <div className="admin-alerts">
+            {data.hardestQuestions[0] && <div><FileText size={18} /><span><strong>{data.hardestQuestions[0].title}</strong><small>Có tỷ lệ sai cao nhất, cần rà soát nội dung.</small></span></div>}
+            {data.retentionAlerts.slice(0, 2).map((alert) => <div key={alert.studentId}><Users size={18} /><span><strong>{alert.name}</strong><small>{alert.alert}</small></span></div>)}
+            {!data.hardestQuestions.length && !data.retentionAlerts.length && <div className="chart-empty">Chưa có cảnh báo từ dữ liệu hiện tại.</div>}
+          </div>
+        </section>
+      </div>
+    </>
+  );
+}
+
+function SkillRadar({ values }: { values: number[] }) {
+  const labels = ["Tài liệu", "Văn bản", "Bảng", "Tham chiếu", "Đồ họa"];
+  const center = 110;
+  const radius = 76;
+  const points = values.slice(0, 5).map((value, index) => {
+    const angle = -Math.PI / 2 + (index * Math.PI * 2) / 5;
+    const distance = radius * (value / 100);
+    return `${center + Math.cos(angle) * distance},${center + Math.sin(angle) * distance}`;
+  }).join(" ");
+  return (
+    <div className="skill-radar">
+      <svg viewBox="0 0 220 220" aria-label="Biểu đồ radar kỹ năng MOS">
+        {[1, .66, .33].map((scale) => <polygon key={scale} points={Array.from({ length: 5 }, (_, index) => { const angle = -Math.PI / 2 + (index * Math.PI * 2) / 5; return `${center + Math.cos(angle) * radius * scale},${center + Math.sin(angle) * radius * scale}`; }).join(" ")} fill="none" stroke="#dbe5f6" />)}
+        <polygon points={points} fill="rgba(43,87,154,.16)" stroke="#2b579a" strokeWidth="2" />
+        {labels.map((label, index) => { const angle = -Math.PI / 2 + (index * Math.PI * 2) / 5; return <text key={label} x={center + Math.cos(angle) * 101} y={center + Math.sin(angle) * 101} textAnchor="middle">{label}</text>; })}
+      </svg>
+    </div>
   );
 }
 
@@ -1757,6 +2027,15 @@ function PersonalizePage({
           </div>
         </div>
       </div>
+
+      <div className="dashboard-heading personalize-dashboard-heading">
+        <div>
+          <p className="eyebrow">Tổng quan học viên</p>
+          <h1>Theo dõi tiến độ và thói quen học</h1>
+          <p>Dữ liệu bài thi và hoạt động học tập của riêng bạn.</p>
+        </div>
+      </div>
+      <LearnerDashboard lessons={lessons} plan={plan} selectLesson={selectLesson} />
 
       <div className="personalize-grid">
         <section className="personalize-section personalize-analytics">

@@ -6,6 +6,7 @@ import { z } from "zod";
 import { collections, connectDb, withoutMongoId } from "./db.js";
 import { getAdminOverview, getStudentAnalytics, getStudentPersonalization } from "./services/analytics.js";
 import { askMosAssistant } from "./services/mosAssistant.js";
+import { listLessonProgress, saveLessonProgress } from "./services/lessonProgress.js";
 import {
   createExamBlueprint,
   createQuestion,
@@ -54,6 +55,7 @@ app.post("/api/auth/register", async (request, response) => {
     name: parsed.data.name,
     email,
     passwordHash: hashPassword(parsed.data.password),
+    createdAt: new Date().toISOString(),
     lastLoginAt: new Date().toISOString(),
   };
 
@@ -184,6 +186,26 @@ app.get("/api/students/:studentId/analytics", async (request, response) => {
 app.get("/api/students/:studentId/personalization", async (request, response) => {
   try {
     response.json(await getStudentPersonalization(request.params.studentId));
+  } catch (error) {
+    response.status(404).json({ error: getErrorMessage(error) });
+  }
+});
+
+app.get("/api/students/:studentId/lesson-progress", async (request, response) => {
+  response.json(await listLessonProgress(request.params.studentId));
+});
+
+app.put("/api/students/:studentId/lesson-progress/:lessonId", async (request, response) => {
+  const parsed = lessonProgressSchema.safeParse(request.body);
+  if (!parsed.success) return response.status(400).json({ error: parsed.error.flatten() });
+  try {
+    response.json(
+      await saveLessonProgress({
+        ...parsed.data,
+        studentId: request.params.studentId,
+        lessonId: request.params.lessonId,
+      }),
+    );
   } catch (error) {
     response.status(404).json({ error: getErrorMessage(error) });
   }
@@ -356,4 +378,14 @@ const assistantChatSchema = z.object({
       studentId: z.string().max(120).optional(),
     })
     .optional(),
+});
+
+const lessonProgressSchema = z.object({
+  title: z.string().min(1),
+  checkedStepIndexes: z.array(z.number().int().nonnegative()),
+  quizAnswers: z.record(z.string()),
+  totalSteps: z.number().int().nonnegative(),
+  totalLessons: z.number().int().positive(),
+  totalQuizQuestions: z.number().int().nonnegative(),
+  correctQuizCount: z.number().int().nonnegative(),
 });
