@@ -34,8 +34,13 @@ const app = express();
 const port = Number(process.env.PORT ?? 4000);
 const chatRateLimit = new Map<string, { count: number; resetAt: number }>();
 
-app.use(cors());
-app.use(express.json());
+app.set("trust proxy", process.env.NODE_ENV === "production" ? 1 : false);
+app.use(cors({
+  origin: process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(",").map((origin) => origin.trim())
+    : true,
+}));
+app.use(express.json({ limit: "3mb" }));
 
 app.get("/health", (_request, response) => {
   response.json({ ok: true, service: "mos-word-education-api" });
@@ -306,7 +311,7 @@ app.get("/api/meta", async (_request, response) => {
 await connectDb();
 await ensureDefaultPracticalTests();
 
-app.listen(port, () => {
+app.listen(port, "0.0.0.0", () => {
   console.log(`MOS education API running on http://localhost:${port}`);
 });
 

@@ -8,9 +8,10 @@ export function launchWordOfficeAddin() {
   }
 
   const frontendDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../FE");
+  const isWindows = process.platform === "win32";
   const child = spawn(
-    "npm",
-    ["run", "office:start"],
+    isWindows ? process.env.ComSpec ?? "cmd.exe" : "npm",
+    isWindows ? ["/d", "/s", "/c", "npm run office:start"] : ["run", "office:start"],
     {
       cwd: frontendDirectory,
       detached: true,

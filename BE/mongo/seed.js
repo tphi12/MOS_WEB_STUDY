@@ -7,6 +7,8 @@ database.users.drop();
 database.questions.drop();
 database.blueprints.drop();
 database.attempts.drop();
+database.lessonProgress.drop();
+database.practicalAttempts.drop();
 
 database.users.insertMany([
   {
@@ -295,23 +297,227 @@ blueprints.push({
 
 database.blueprints.insertMany(blueprints);
 
-const seedAttemptQuestions = questions.slice(0, 20);
-database.attempts.insertOne({
-  id: "attempt-seed-1",
-  studentId: "u-student-1",
-  blueprintId: blueprints[0].id,
-  questionIds: seedAttemptQuestions.map((question) => question.id),
-  startedAt: new Date(now.getTime() - 3 * 86400000).toISOString(),
-  submittedAt: new Date(now.getTime() - 3 * 86400000 + 18 * 60000).toISOString(),
-  rawScore: 75,
-  mosScore: 75,
-  answers: seedAttemptQuestions.map((question, index) => ({
-    questionId: question.id,
-    answer: index % 4 === 0 ? question.options.find((option) => option !== question.expectedAnswer) : question.expectedAnswer,
-    elapsedSeconds: 42 + index,
-    isCorrect: index % 4 !== 0,
-  })),
+database.users.deleteMany({});
+
+const studentProfiles = [
+  ...Array.from({ length: 10 }, () => "completed"),
+  ...Array.from({ length: 25 }, () => "active"),
+  ...Array.from({ length: 10 }, () => "starter"),
+  ...Array.from({ length: 5 }, () => "at-risk"),
+];
+const studentNames = [
+  "Nguyễn Minh Anh", "Trần Quốc Bảo", "Lê Hoàng Nam", "Phạm Thu Hà", "Võ Gia Hân",
+  "Đặng Minh Khang", "Bùi Ngọc Lan", "Đỗ Hải Long", "Hồ Quỳnh Mai", "Ngô Đức Minh",
+  "Dương Khánh My", "Lý Nhật Nam", "Trương Kim Ngân", "Phan Hoàng Oanh", "Mai Đức Phúc",
+  "Nguyễn Thảo Phương", "Trần Minh Quân", "Lê Như Quỳnh", "Phạm Tuấn Sơn", "Võ Thanh Tâm",
+  "Đặng Anh Thư", "Bùi Minh Trang", "Đỗ Quốc Trung", "Hồ Ngọc Tú", "Ngô Bảo Vy",
+  "Dương Hải Yến", "Lý Minh Châu", "Trương Quốc Cường", "Phan Thùy Dung", "Mai Gia Huy",
+  "Nguyễn Khánh Linh", "Trần Thành Đạt", "Lê Phương Nhi", "Phạm Công Thành", "Võ Mai Chi",
+  "Đặng Quốc Khánh", "Bùi Hà My", "Đỗ Minh Nhật", "Hồ Thanh Trúc", "Ngô Quang Vinh",
+  "Dương Bảo Ngọc", "Lý Anh Tuấn", "Trương Minh Thư", "Phan Gia Bảo", "Mai Thùy Linh",
+  "Nguyễn Đức Anh", "Trần Ngọc Hân", "Lê Quang Huy", "Phạm Yến Nhi", "Võ Minh Triết",
+];
+const profileSettings = {
+  completed: { loginMin: 0, loginMax: 3, lessonMin: lessons.length, lessonMax: lessons.length, attemptMin: 11, attemptMax: 15, scoreMin: 78, scoreMax: 98 },
+  active: { loginMin: 0, loginMax: 6, lessonMin: 4, lessonMax: 10, attemptMin: 4, attemptMax: 9, scoreMin: 55, scoreMax: 91 },
+  starter: { loginMin: 0, loginMax: 5, lessonMin: 1, lessonMax: 3, attemptMin: 1, attemptMax: 3, scoreMin: 42, scoreMax: 78 },
+  "at-risk": { loginMin: 10, loginMax: 32, lessonMin: 1, lessonMax: 5, attemptMin: 2, attemptMax: 5, scoreMin: 18, scoreMax: 48 },
+};
+
+const students = studentProfiles.map((profile, index) => {
+  const settings = profileSettings[profile];
+  const registeredDaysAgo = clamp(Math.round(80 - index * 1.5 + seededInt(`registered-${index}`, -4, 4)), 2, 82);
+  const lastLoginDaysAgo = profile === "at-risk"
+    ? clamp(10 + (index - 45) * 4 + seededInt(`login-${index}`, 0, 3), settings.loginMin, settings.loginMax)
+    : seededInt(`login-${index}`, settings.loginMin, settings.loginMax);
+  return {
+    id: `u-student-${String(index + 1).padStart(2, "0")}`,
+    role: "student",
+    name: studentNames[index],
+    email: `student${String(index + 1).padStart(2, "0")}@mos.edu.vn`,
+    passwordHash: demoPasswordHash,
+    createdAt: dateDaysAgo(registeredDaysAgo, seededInt(`register-hour-${index}`, 8, 21)),
+    lastLoginAt: dateDaysAgo(lastLoginDaysAgo, seededInt(`login-hour-${index}`, 7, 22)),
+    seedProfile: profile,
+  };
 });
+
+database.users.insertMany([
+  {
+    id: "u-admin",
+    role: "admin",
+    name: "Admin MOS Center",
+    email: "admin@mos.edu.vn",
+    passwordHash: demoPasswordHash,
+    createdAt: dateDaysAgo(120, 8),
+    lastLoginAt: now.toISOString(),
+  },
+  ...students.map(({ seedProfile, ...student }) => student),
+]);
+
+const generatedAttempts = [];
+const generatedProgress = [];
+const generatedPracticalAttempts = [];
+
+for (const [studentIndex, student] of students.entries()) {
+  const profile = student.seedProfile;
+  const settings = profileSettings[profile];
+  const lessonCount = seededInt(`lessons-${studentIndex}`, settings.lessonMin, settings.lessonMax);
+  const attemptCount = seededInt(`attempts-${studentIndex}`, settings.attemptMin, settings.attemptMax);
+  const activityWindow = profile === "at-risk" ? [14, 75] : [0, Math.max(8, Math.min(75, daysBetween(student.createdAt, now.toISOString())))];
+
+  for (let lessonIndex = 0; lessonIndex < lessonCount; lessonIndex += 1) {
+    const lesson = lessons[lessonIndex];
+    const isCompleted = profile === "completed" || lessonIndex < lessonCount - 1;
+    const checklistPercent = isCompleted ? 100 : seededInt(`check-${studentIndex}-${lessonIndex}`, 25, 85);
+    const quizPercent = isCompleted
+      ? seededInt(`quiz-complete-${studentIndex}-${lessonIndex}`, 72, 100)
+      : seededInt(`quiz-active-${studentIndex}-${lessonIndex}`, 20, 78);
+    generatedProgress.push({
+      studentId: student.id,
+      lessonId: lesson.id,
+      title: lesson.name,
+      checkedStepIndexes: Array.from({ length: Math.round(checklistPercent / 20) }, (_, index) => index),
+      quizAnswers: {},
+      totalSteps: 5,
+      totalLessons: lessons.length,
+      totalQuizQuestions: 5,
+      correctQuizCount: Math.round(quizPercent / 20),
+      checklistPercent,
+      quizPercent,
+      scorePercent: Math.round((checklistPercent + quizPercent) / 2),
+      completed: isCompleted && quizPercent >= 70,
+      updatedAt: dateDaysAgo(seededInt(`progress-date-${studentIndex}-${lessonIndex}`, activityWindow[0], activityWindow[1]), seededInt(`progress-hour-${studentIndex}-${lessonIndex}`, 7, 22)),
+    });
+  }
+
+  for (let attemptIndex = 0; attemptIndex < attemptCount; attemptIndex += 1) {
+    const blueprint = blueprints[(studentIndex + attemptIndex) % blueprints.length];
+    const blueprintQuestions = blueprint.lessonId
+      ? questions.filter((question) => question.id.includes(blueprint.lessonId)).slice(0, blueprint.totalQuestions)
+      : pickQuestions(questions, blueprint.totalQuestions, `final-${studentIndex}-${attemptIndex}`);
+    const progressionBonus = Math.round((attemptIndex / Math.max(1, attemptCount - 1)) * (profile === "at-risk" ? 3 : 12));
+    const targetScore = clamp(seededInt(`score-${studentIndex}-${attemptIndex}`, settings.scoreMin, settings.scoreMax) + progressionBonus, 10, 100);
+    const submittedDaysAgo = distributedDaysAgo(
+      `attempt-date-${studentIndex}-${attemptIndex}`,
+      attemptIndex,
+      attemptCount,
+      activityWindow[0],
+      activityWindow[1],
+    );
+    const startedAt = dateDaysAgo(submittedDaysAgo, seededInt(`attempt-hour-${studentIndex}-${attemptIndex}`, 7, 22));
+    generatedAttempts.push(makeAttempt(student.id, blueprint.id, blueprintQuestions, targetScore, startedAt, studentIndex, attemptIndex));
+  }
+
+  const practicalCount = profile === "completed" ? 4 : profile === "active" ? seededInt(`practical-${studentIndex}`, 1, 3) : profile === "starter" ? seededInt(`practical-${studentIndex}`, 0, 1) : 1;
+  for (let practicalIndex = 0; practicalIndex < practicalCount; practicalIndex += 1) {
+    const officeFinal = practicalIndex >= 2 || (profile === "completed" && practicalIndex >= practicalCount - 2);
+    const practicalTestId = officeFinal
+      ? ["practical-final-office-academic", "practical-final-office-professional"][practicalIndex % 2]
+      : `practical-${lessons[(studentIndex + practicalIndex) % lessons.length].id}`;
+    const baseScore = profile === "completed" ? 82 : profile === "active" ? 67 : profile === "starter" ? 54 : 32;
+    const score = clamp(baseScore + seededInt(`practical-score-${studentIndex}-${practicalIndex}`, -12, 13), 10, 100);
+    const submittedDaysAgo = distributedDaysAgo(
+      `practical-date-${studentIndex}-${practicalIndex}`,
+      practicalIndex,
+      practicalCount,
+      activityWindow[0],
+      activityWindow[1],
+    );
+    generatedPracticalAttempts.push({
+      id: `practical-seed-${student.id}-${practicalIndex + 1}`,
+      studentId: student.id,
+      practicalTestId,
+      startedAt: dateDaysAgo(submittedDaysAgo, seededInt(`practical-hour-${studentIndex}-${practicalIndex}`, 8, 21)),
+      submittedAt: dateDaysAgo(submittedDaysAgo, seededInt(`practical-hour-submit-${studentIndex}-${practicalIndex}`, 9, 22)),
+      content: "<p>Bài thực hành đã hoàn thành trong dữ liệu mô phỏng.</p>",
+      score,
+      checkResults: Array.from({ length: 10 }, (_, checkIndex) => ({
+        checkId: `seed-check-${checkIndex + 1}`,
+        taskId: `task-${Math.floor(checkIndex / 2) + 1}`,
+        label: `Tiêu chí thực hành ${checkIndex + 1}`,
+        points: 10,
+        earnedPoints: checkIndex < Math.round(score / 10) ? 10 : 0,
+        passed: checkIndex < Math.round(score / 10),
+      })),
+    });
+  }
+}
+
+database.attempts.insertMany(generatedAttempts);
+database.lessonProgress.insertMany(generatedProgress);
+database.practicalAttempts.insertMany(generatedPracticalAttempts);
+
+function makeAttempt(studentId, blueprintId, selectedQuestions, targetScore, startedAt, studentIndex, attemptIndex) {
+  const correctTarget = Math.round((targetScore / 100) * selectedQuestions.length);
+  const rankedQuestions = [...selectedQuestions].sort((left, right) =>
+    seededNumber(`correct-${studentIndex}-${attemptIndex}-${left.id}`) - seededNumber(`correct-${studentIndex}-${attemptIndex}-${right.id}`),
+  );
+  const correctIds = new Set(rankedQuestions.slice(0, correctTarget).map((question) => question.id));
+  const answers = selectedQuestions.map((question, answerIndex) => {
+    const isCorrect = correctIds.has(question.id);
+    const wrongAnswer = question.options?.find((option) => option !== question.expectedAnswer) ?? "Chưa xác định";
+    return {
+      questionId: question.id,
+      answer: isCorrect ? question.expectedAnswer : wrongAnswer,
+      elapsedSeconds: seededInt(`seconds-${studentIndex}-${attemptIndex}-${answerIndex}`, isCorrect ? 35 : 55, isCorrect ? 85 : 125),
+      isCorrect,
+    };
+  });
+  const score = Math.round((correctTarget / selectedQuestions.length) * 100);
+  const durationSeconds = answers.reduce((sum, answer) => sum + answer.elapsedSeconds, 0);
+  return {
+    id: `attempt-seed-${studentId}-${attemptIndex + 1}`,
+    studentId,
+    blueprintId,
+    questionIds: selectedQuestions.map((question) => question.id),
+    startedAt,
+    submittedAt: new Date(new Date(startedAt).getTime() + durationSeconds * 1000).toISOString(),
+    rawScore: score,
+    mosScore: score,
+    answers,
+  };
+}
+
+function pickQuestions(items, count, seed) {
+  return [...items]
+    .sort((left, right) => seededNumber(`${seed}-${left.id}`) - seededNumber(`${seed}-${right.id}`))
+    .slice(0, count);
+}
+
+function seededNumber(seedText) {
+  let value = 2166136261;
+  for (const character of seedText) {
+    value ^= character.charCodeAt(0);
+    value = Math.imul(value, 16777619);
+  }
+  return (value >>> 0) / 4294967295;
+}
+
+function seededInt(seedText, min, max) {
+  return Math.floor(seededNumber(seedText) * (max - min + 1)) + min;
+}
+
+function dateDaysAgo(daysAgo, hour) {
+  const date = new Date(now);
+  date.setDate(date.getDate() - daysAgo);
+  date.setHours(hour, seededInt(`minute-${daysAgo}-${hour}`, 0, 59), 0, 0);
+  return date.toISOString();
+}
+
+function daysBetween(from, to) {
+  return Math.max(0, Math.floor((new Date(to).getTime() - new Date(from).getTime()) / 86400000));
+}
+
+function distributedDaysAgo(seedText, index, total, min, max) {
+  const range = Math.max(0, max - min);
+  const position = total <= 1 ? 0.5 : index / (total - 1);
+  return clamp(Math.round(max - position * range + seededInt(seedText, -3, 3)), min, max);
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
 
 database.users.createIndex({ id: 1 }, { unique: true });
 database.questions.createIndex({ id: 1 }, { unique: true });
@@ -320,6 +526,9 @@ database.questions.createIndex({ skillTags: 1 });
 database.blueprints.createIndex({ id: 1 }, { unique: true });
 database.attempts.createIndex({ id: 1 }, { unique: true });
 database.attempts.createIndex({ studentId: 1, submittedAt: -1 });
+database.lessonProgress.createIndex({ studentId: 1, lessonId: 1 }, { unique: true });
+database.practicalAttempts.createIndex({ id: 1 }, { unique: true });
+database.practicalAttempts.createIndex({ studentId: 1, submittedAt: -1 });
 
 printjson({
   ok: 1,
@@ -328,4 +537,6 @@ printjson({
   questions: database.questions.countDocuments(),
   blueprints: database.blueprints.countDocuments(),
   attempts: database.attempts.countDocuments(),
+  lessonProgress: database.lessonProgress.countDocuments(),
+  practicalAttempts: database.practicalAttempts.countDocuments(),
 });

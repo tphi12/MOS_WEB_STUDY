@@ -4,3 +4,6 @@ dist/
 FE/mos-hub-*.png
 /*.log
 codex/
+.env
+.env.*
+!.env.example

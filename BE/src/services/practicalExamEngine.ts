@@ -17,13 +17,14 @@ const topics = [
 
 const defaultPracticalTests: PracticalTest[] = [
   ...topics.map(([lessonId, title, phrases]) => makeTopicTest(lessonId, title, [...phrases])),
-  makeFinalTest(),
   makeOfficeFinalAcademicTest(),
   makeOfficeFinalProfessionalTest(),
 ];
 
 export async function ensureDefaultPracticalTests() {
-  await collections().practicalTests.deleteMany({ id: { $in: ["practical-format-report", "practical-table-summary"] } });
+  await collections().practicalTests.deleteMany({
+    id: { $in: ["practical-format-report", "practical-table-summary", "practical-final-word"] },
+  });
   await Promise.all(
     defaultPracticalTests.map((test) =>
       collections().practicalTests.replaceOne({ id: test.id }, test, { upsert: true }),
@@ -120,18 +121,6 @@ function makeTopicTest(lessonId: string, title: string, phrases: string[]): Prac
     durationMinutes: 30,
     initialContent: `<p>${title.toUpperCase()}</p>${phrases.map((phrase) => `<p>${phrase}</p>`).join("")}<p>Ghi chú hoàn thành bài thực hành Wordie.</p>`,
     tasks: phrases.map((phrase, index) => makeTask(index + 1, phrase, 10)),
-  };
-}
-
-function makeFinalTest(): PracticalTest {
-  const phrases = topics.slice(0, 10).map(([, , values], index) => values[index % values.length]);
-  return {
-    id: "practical-final-word",
-    title: "Bài thực hành Word tổng hợp cuối khóa",
-    description: "Đề thực hành khó gồm 10 câu bao phủ toàn bộ kỹ năng Word.",
-    durationMinutes: 90,
-    initialContent: `<p>BÀI THỰC HÀNH WORD TỔNG HỢP</p>${phrases.map((phrase) => `<p>${phrase}</p>`).join("")}<p>Báo cáo hoàn thành Wordie</p>`,
-    tasks: phrases.map((phrase, index) => makeTask(index + 1, phrase, 5)),
   };
 }
 

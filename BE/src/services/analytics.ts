@@ -1,6 +1,8 @@
 import { collections, withoutMongoId } from "../db.js";
 import type { AttemptAnswer, ExamAttempt, Mastery, MosDomain, PracticalAttempt, PracticalTest, Question, User } from "../types.js";
 
+let adminOverviewCache: { expiresAt: number; value: Awaited<ReturnType<typeof buildAdminOverview>> } | undefined;
+
 export async function getStudentAnalytics(studentId: string) {
   const [student, studentAttempts, practicalAttempts, practicalTests, questions, lessonProgress] = await Promise.all([
     collections().users.findOne({ id: studentId }, withoutMongoId<User>()),
@@ -113,6 +115,13 @@ export async function getStudentPersonalization(studentId: string) {
 }
 
 export async function getAdminOverview() {
+  if (adminOverviewCache && adminOverviewCache.expiresAt > Date.now()) return adminOverviewCache.value;
+  const value = await buildAdminOverview();
+  adminOverviewCache = { expiresAt: Date.now() + 30_000, value };
+  return value;
+}
+
+async function buildAdminOverview() {
   const [users, questions, blueprints, submittedAttempts, practicalAttempts] = await Promise.all([
     collections().users.find({}).toArray(),
     collections().questions.find({}, withoutMongoId<Question>()).toArray(),

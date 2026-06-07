@@ -25,9 +25,14 @@
   "devDependencies": {
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-basic-ssl": "^2.3.0",
     "office-addin-debugging": "^6.1.1",
+    "office-addin-dev-certs": "^2.0.9",
     "office-addin-manifest": "^2.1.5",
     "playwright": "^1.60.0"
+  },
+  "overrides": {
+    "@microsoft/app-manifest": {
+      "strip-bom": "3.0.0"
+    }
   }
 }

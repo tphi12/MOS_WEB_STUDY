@@ -39,6 +39,7 @@ type OfficeContext = {
       insertHtml: (html: string, location: string) => void;
       getOoxml: () => { value: string };
     };
+    close: (closeBehavior?: "Save" | "SkipSave") => void;
   };
   sync: () => Promise<void>;
 };
@@ -126,5 +127,14 @@ export async function collectOfficeDocumentSnapshot(): Promise<OfficeDocumentSna
       inlinePictureCount: body.inlinePictures.items.length,
       ooxml: ooxml.value,
     };
+  });
+}
+
+export async function closeOfficeDocument() {
+  if (!(await waitForWordAddin())) return;
+  const word = window.Word;
+  if (!word) return;
+  await word.run(async (context) => {
+    context.document.close("SkipSave");
   });
 }

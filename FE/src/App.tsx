@@ -50,7 +50,7 @@ import {
   X,
 } from "lucide-react";
 import { groupLabels, lessons, shortcuts } from "./data";
-import { collectOfficeDocumentSnapshot, loadExamIntoWord, waitForWordAddin } from "./officeWord";
+import { closeOfficeDocument, collectOfficeDocumentSnapshot, loadExamIntoWord, waitForWordAddin } from "./officeWord";
 import type { OfficeDocumentSnapshot } from "./officeWord";
 import type { Lesson, Shortcut, WordLab, WordLabCheck } from "./types";
 import "ckeditor5/ckeditor5.css";
@@ -1689,6 +1689,9 @@ function TestsPage({
       if (authUser) {
         const planResponse = await fetch(`${API_URL}/api/students/${authUser.id}/personalization`);
         if (planResponse.ok) onPersonalizationUpdated((await planResponse.json()) as PersonalizedPlan);
+      }
+      if (activePracticalTest.deliveryMode === "office-addin") {
+        window.setTimeout(() => void closeOfficeDocument().catch(() => undefined), 500);
       }
     } catch (submitError) {
       const detail = submitError instanceof Error ? submitError.message : "";
