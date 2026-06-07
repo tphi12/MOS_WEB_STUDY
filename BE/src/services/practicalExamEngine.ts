@@ -17,6 +17,7 @@ const topics = [
 
 const defaultPracticalTests: PracticalTest[] = [
   ...topics.map(([lessonId, title, phrases]) => makeTopicTest(lessonId, title, [...phrases])),
+  makeSimulationFinalTest(),
   makeOfficeFinalAcademicTest(),
   makeOfficeFinalProfessionalTest(),
 ];
@@ -121,6 +122,54 @@ function makeTopicTest(lessonId: string, title: string, phrases: string[]): Prac
     durationMinutes: 30,
     initialContent: `<p>${title.toUpperCase()}</p>${phrases.map((phrase) => `<p>${phrase}</p>`).join("")}<p>Ghi chú hoàn thành bài thực hành Wordie.</p>`,
     tasks: phrases.map((phrase, index) => makeTask(index + 1, phrase, 10)),
+  };
+}
+
+function makeSimulationFinalTest(): PracticalTest {
+  return {
+    id: "practical-final-ckeditor-academic",
+    title: "Bài thực hành cuối khóa: Tiểu luận",
+    description: "Bài mô phỏng bám sát 7 câu phần Bài thực hành 1 - Tiểu luận trong bộ đề Quản lý dự án giáo dục.",
+    deliveryMode: "simulation",
+    durationMinutes: 90,
+    initialContent: [
+      "<h1>BÀI TIỂU LUẬN QUẢN LÝ DỰ ÁN GIÁO DỤC</h1>",
+      "<p>MỤC LỤC THỦ CÔNG</p><p>Chapter 1: Introduction ........ 1</p>",
+      "<h2>Chapter 1: Introduction</h2><p>&nbsp;&nbsp;&nbsp;Nội dung Chương 1 đang dùng định dạng chưa đồng nhất và cần được chuẩn hóa.</p>",
+      "<h2>Chapter 2: Project Analysis</h2><table><tbody><tr><td>Hạng mục</td><td>Nội dung phân tích dự án giáo dục</td></tr><tr><td>Tiến độ</td><td>Kế hoạch triển khai</td></tr></tbody></table>",
+      "<h2>Chapter 3: Communication</h2><p>Vị trí chèn hình minh họa dự án giáo dục.</p>",
+      "<h2>Chapter 4: Evaluation</h2><p>&nbsp;&nbsp;Nội dung  Chương 4  đang có khoảng trắng dư thừa và định dạng chưa đồng bộ.</p>",
+      "<p>Chapter 5: Conclusion</p><p>Kết luận của bài tiểu luận.</p>",
+    ].join(""),
+    tasks: [
+      rubricTask(1, "Chuẩn hóa nội dung Chương 1", "Đặt Times New Roman, cỡ 13, Line Spacing 1.5 và căn đều hai lề cho nội dung.", [
+        check("font", "Có nội dung dùng Times New Roman", "font-family", "Times New Roman", 4),
+        check("size", "Có nội dung dùng cỡ chữ 13", "font-size", "13", 4),
+        check("line", "Đã đặt Line Spacing 1.5", "line-spacing", "1.5", 4),
+        check("justify", "Có nội dung căn đều hai lề", "alignment", "justify", 4),
+      ]),
+      rubricTask(2, "Sửa lỗi định dạng Chương 4", "Đặt Before/After = 0 pt và loại bỏ khoảng trắng dư thừa.", [
+        check("spacing", "Đã đặt Before/After = 0 pt", "spacing-zero", undefined, 7),
+        check("spaces", "Không còn khoảng trắng thừa ở đầu đoạn", "no-leading-spaces", undefined, 7),
+      ]),
+      rubricTask(3, "Thiết lập thụt đầu dòng", "Xóa Space thừa ở đầu đoạn và đặt First Line Indent = 1.27 cm.", [
+        check("indent", "Đã đặt First Line Indent = 1.27 cm", "first-line-indent", "1.27", 7),
+        check("leading", "Không còn Space thừa ở đầu đoạn", "no-leading-spaces", undefined, 7),
+      ]),
+      rubricTask(4, "Điều chỉnh bảng Chương 2", "Giữ bảng phân tích nằm gọn trong trang và căn chỉnh các cột hợp lý.", [
+        check("table", "Có bảng phân tích dự án giáo dục", "table-contains", "Nội dung phân tích dự án giáo dục", 14),
+      ]),
+      rubricTask(5, "Điều chỉnh hình ảnh Chương 3", "Chèn hình ảnh, chỉnh kích thước phù hợp và căn giữa trên trang.", [
+        check("image", "Có hình ảnh minh họa", "image", undefined, 14),
+      ]),
+      rubricTask(6, "Tạo lại mục lục", "Áp dụng Heading phù hợp và bổ sung Chapter 5: Conclusion vào hệ thống tiêu đề.", [
+        check("heading", "Chapter 5: Conclusion được định dạng Heading", "heading-text", "Chapter 5: Conclusion", 14),
+      ]),
+      rubricTask(7, "Chuẩn hóa ngắt trang và số trang", "Chèn Page Break đúng chuẩn trước chương mới và bật đánh số trang.", [
+        check("break", "Có Page Break đúng chuẩn", "page-break", undefined, 7),
+        check("page-number", "Đã bật đánh số trang", "page-number", undefined, 7),
+      ]),
+    ],
   };
 }
 
@@ -275,6 +324,18 @@ function evaluateCheck(html: string, type: PracticalCheckType, value?: string, o
   if (type === "bold-text") return elementContains(normalizedHtml, "(?:strong|b)", expected);
   if (type === "list-contains") return elementContains(normalizedHtml, "(?:ul|ol)", expected);
   if (type === "table-contains") return elementContains(normalizedHtml, "table", expected);
+  if (type === "font-family") return Boolean(expected && normalizedHtml.includes("font-family") && normalizedHtml.includes(expected));
+  if (type === "font-size") return Boolean(expected && normalizedHtml.includes(`font-size:${expected}`));
+  if (type === "alignment") return Boolean(expected && normalizedHtml.includes(`text-align:${expected}`));
+  if (type === "line-spacing") return normalizedHtml.includes(`data-line-spacing="${expected}"`);
+  if (type === "first-line-indent") return normalizedHtml.includes(`data-first-line-indent="${expected}"`);
+  if (type === "spacing-zero") return normalizedHtml.includes('data-spacing-zero="true"');
+  if (type === "no-leading-spaces") return !/<p(?:\s[^>]*)?>(?:&nbsp;|\s){2,}/i.test(html);
+  if (type === "image") return /<img(?:\s|>)/.test(normalizedHtml);
+  if (type === "page-break") return normalizedHtml.includes("page-break");
+  if (type === "header") return elementContains(normalizedHtml, "header", expected) || /<header(?:\s[^>]*)?>[\s\S]*?\S[\s\S]*?<\/header>/.test(normalizedHtml);
+  if (type === "footer") return elementContains(normalizedHtml, "footer", expected) || /<footer(?:\s[^>]*)?>[\s\S]*?\S[\s\S]*?<\/footer>/.test(normalizedHtml);
+  if (type === "page-number") return normalizedHtml.includes('data-page-numbering="true"');
   if (type === "office-body-contains") return normalizeText(officeSnapshot?.bodyText).includes(expected);
   if (type === "office-body-not-contains") return !normalizeText(officeSnapshot?.bodyText).includes(expected);
   if (type === "office-bold-text") return officeSnapshot?.paragraphs.some((paragraph) => paragraph.bold === true && normalizeText(paragraph.text).includes(expected)) ?? false;

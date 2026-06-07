@@ -9,6 +9,10 @@
     "preview": "vite preview --host 0.0.0.0",
     "office:validate": "office-addin-manifest validate wordie-office-addin.xml",
     "office:manifest:production": "node scripts/create-production-manifest.mjs",
+    "office:installer:windows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-office-installer.ps1",
+    "office:install:production": "office-addin-dev-settings register wordie-office-addin.production.xml",
+    "office:uninstall:production": "office-addin-dev-settings unregister wordie-office-addin.production.xml",
+    "office:registered": "office-addin-dev-settings registered",
     "office:start": "office-addin-debugging start wordie-office-addin.xml desktop --app word --no-debug --dev-server-port 5173",
     "office:stop": "office-addin-debugging stop wordie-office-addin.xml desktop"
   },

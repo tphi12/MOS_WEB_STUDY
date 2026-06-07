@@ -8,3 +8,4 @@ codex/
 .env.*
 !.env.example
 FE/wordie-office-addin.production.xml
+FE/release/
