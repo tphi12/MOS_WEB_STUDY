@@ -3,13 +3,26 @@ import type { CSSProperties, KeyboardEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { CKEditor } from "@ckeditor/ckeditor5-react";
 import {
+  Alignment,
+  Base64UploadAdapter,
   Bold,
   ClassicEditor,
   Essentials,
+  FontBackgroundColor,
+  FontColor,
+  FontFamily,
+  FontSize,
   Heading,
+  Image,
+  ImageCaption,
+  ImageResize,
+  ImageStyle,
+  ImageToolbar,
+  ImageUpload,
   Italic,
   Link as CkLink,
   List,
+  PageBreak,
   Paragraph,
   Table,
   TableToolbar,
@@ -1394,6 +1407,12 @@ function TestsPage({
   const [practicalAttempt, setPracticalAttempt] = useState<PracticalAttempt | null>(null);
   const [activePracticalTest, setActivePracticalTest] = useState<PracticalTest | null>(null);
   const [practicalContent, setPracticalContent] = useState("");
+  const [documentHeader, setDocumentHeader] = useState("");
+  const [documentFooter, setDocumentFooter] = useState("");
+  const [pageNumbering, setPageNumbering] = useState(false);
+  const [lineSpacing, setLineSpacing] = useState("normal");
+  const [firstLineIndent, setFirstLineIndent] = useState(false);
+  const [paragraphSpacingZero, setParagraphSpacingZero] = useState(false);
   const [officeSnapshot, setOfficeSnapshot] = useState<OfficeDocumentSnapshot | null>(null);
   const [officeReady, setOfficeReady] = useState(false);
   const [officeStatus, setOfficeStatus] = useState("");
@@ -1407,14 +1426,36 @@ function TestsPage({
   const loadedOfficeAttemptId = useRef<string | null>(null);
 
   const activeBlueprint = blueprints.find((blueprint) => blueprint.id === attempt?.blueprintId);
+  const simulationPracticalTests = practicalTests.filter((test) => test.deliveryMode !== "office-addin");
+  const officeAddinTests = practicalTests.filter((test) => test.deliveryMode === "office-addin");
   const answeredCount = questions.filter((question) => answers[question.id]).length;
   const isTakingTest = Boolean(attempt && questions.length > 0 && !result);
   const isTakingPractical = Boolean(practicalAttempt && activePracticalTest && !practicalResult);
+  const simulatedPageCount = Math.max(1, (practicalContent.match(/page-break/gi)?.length ?? 0) + 1);
   const practicalEditorConfig = useMemo(
     () => ({
       licenseKey: "GPL",
-      plugins: [Essentials, Paragraph, Heading, Bold, Italic, CkLink, List, Table, TableToolbar, Undo],
-      toolbar: ["undo", "redo", "|", "heading", "|", "bold", "italic", "link", "|", "bulletedList", "numberedList", "|", "insertTable"],
+      plugins: [
+        Essentials, Paragraph, Heading, Bold, Italic, CkLink, List, Table, TableToolbar, Undo,
+        Alignment, FontFamily, FontSize, FontColor, FontBackgroundColor, Image, ImageCaption,
+        ImageResize, ImageStyle, ImageToolbar, ImageUpload, Base64UploadAdapter, PageBreak,
+      ],
+      toolbar: {
+        items: [
+          "undo", "redo", "|", "heading", "fontFamily", "fontSize", "|", "bold", "italic",
+          "fontColor", "fontBackgroundColor", "|", "alignment", "link", "|", "bulletedList",
+          "numberedList", "|", "insertTable", "uploadImage", "pageBreak",
+        ],
+        shouldNotGroupWhenFull: false,
+      },
+      fontFamily: {
+        options: ["default", "Arial, Helvetica, sans-serif", "Calibri, Arial, sans-serif", "Times New Roman, Times, serif", "Verdana, Geneva, sans-serif"],
+        supportAllValues: true,
+      },
+      fontSize: {
+        options: [10, 11, 12, 13, 14, 16, 18, 24, 28, 32],
+        supportAllValues: true,
+      },
       heading: {
         options: [
           { model: "paragraph", title: "Normal", class: "ck-heading_paragraph" },
@@ -1423,6 +1464,9 @@ function TestsPage({
         ],
       },
       table: { contentToolbar: ["tableColumn", "tableRow", "mergeTableCells"] },
+      image: {
+        toolbar: ["imageTextAlternative", "toggleImageCaption", "|", "imageStyle:inline", "imageStyle:block", "imageStyle:side", "|", "resizeImage"],
+      },
     }) as Record<string, unknown>,
     [],
   );
@@ -1606,6 +1650,12 @@ function TestsPage({
       setPracticalAttempt(data.attempt);
       setActivePracticalTest(data.test);
       setPracticalContent(data.test.initialContent);
+      setDocumentHeader("");
+      setDocumentFooter("");
+      setPageNumbering(false);
+      setLineSpacing("normal");
+      setFirstLineIndent(false);
+      setParagraphSpacingZero(false);
       setOfficeSnapshot(null);
       setOfficeStatus(data.test.deliveryMode === "office-addin" ? "Đang kiểm tra kết nối Office.js..." : "");
       setAttemptStartedAt(Date.now());
@@ -1619,7 +1669,7 @@ function TestsPage({
           setOfficeStatus("Đề đã được nạp vào Word.");
         } else {
           if (WORD_EXAM_DOCUMENT_URL) {
-            window.location.href = `ms-word:ofe|u|${WORD_EXAM_DOCUMENT_URL}`;
+            window.location.href = `ms-word:nft|u|${WORD_EXAM_DOCUMENT_URL}`;
             setOfficeStatus("Đang yêu cầu Windows mở Microsoft Word. Hãy xác nhận hộp thoại mở ứng dụng nếu trình duyệt hiển thị.");
           } else {
             const launchResponse = await fetch(`${API_URL}/api/local-office/launch`, {
@@ -1685,7 +1735,20 @@ function TestsPage({
       const response = await fetch(`${API_URL}/api/practical-attempts/${practicalAttempt.id}/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: practicalContent, officeSnapshot: snapshot ?? undefined }),
+        body: JSON.stringify({
+          content: activePracticalTest.deliveryMode === "office-addin"
+            ? practicalContent
+            : composeSimulationDocument(
+                practicalContent,
+                documentHeader,
+                documentFooter,
+                pageNumbering,
+                lineSpacing,
+                firstLineIndent,
+                paragraphSpacingZero,
+              ),
+          officeSnapshot: snapshot ?? undefined,
+        }),
       });
       if (!response.ok) throw new Error("Cannot submit practical test");
       const submitted = (await response.json()) as PracticalAttempt;
@@ -1717,6 +1780,12 @@ function TestsPage({
     setPracticalAttempt(null);
     setActivePracticalTest(null);
     setPracticalContent("");
+    setDocumentHeader("");
+    setDocumentFooter("");
+    setPageNumbering(false);
+    setLineSpacing("normal");
+    setFirstLineIndent(false);
+    setParagraphSpacingZero(false);
     setOfficeSnapshot(null);
     setOfficeStatus("");
     setPracticalResult(null);
@@ -1804,24 +1873,59 @@ function TestsPage({
                 <strong>Wordie Document</strong>
                 <span>Đang làm bài</span>
               </div>
-              <div className="word-ribbon" aria-hidden="true">
+              <div className="word-ribbon">
                 <span>Home</span>
                 <button type="button">File</button>
                 <button type="button">Insert</button>
                 <button type="button">Layout</button>
                 <button type="button">References</button>
                 <button type="button">Review</button>
+                <label>
+                  Giãn dòng
+                  <select value={lineSpacing} onChange={(event) => setLineSpacing(event.target.value)}>
+                    <option value="normal">Mặc định</option>
+                    <option value="1.0">1.0</option>
+                    <option value="1.15">1.15</option>
+                    <option value="1.5">1.5</option>
+                    <option value="2.0">2.0</option>
+                  </select>
+                </label>
+                <button type="button" className={firstLineIndent ? "active" : ""} onClick={() => setFirstLineIndent((current) => !current)}>
+                  Thụt đầu dòng 1.27 cm
+                </button>
+                <button type="button" className={paragraphSpacingZero ? "active" : ""} onClick={() => setParagraphSpacingZero((current) => !current)}>
+                  Before/After 0 pt
+                </button>
+                <button type="button" className={pageNumbering ? "active" : ""} onClick={() => setPageNumbering((current) => !current)}>
+                  {pageNumbering ? "Đã bật số trang" : "Bật số trang"}
+                </button>
               </div>
-              <div className="word-page">
+              <div
+                className="word-page"
+                style={{
+                  "--simulation-line-height": lineSpacing === "normal" ? "normal" : lineSpacing,
+                  "--simulation-first-line-indent": firstLineIndent ? "1.27cm" : "0",
+                  "--simulation-paragraph-margin": paragraphSpacingZero ? "0" : "1em",
+                } as CSSProperties}
+              >
+                <label className="word-page-header">
+                  <span>Header</span>
+                  <input value={documentHeader} onChange={(event) => setDocumentHeader(event.target.value)} placeholder="Nhập nội dung đầu trang" />
+                </label>
                 <CKEditor
                   editor={ClassicEditor}
                   config={practicalEditorConfig}
                   data={activePracticalTest.initialContent}
                   onChange={(_, editor) => setPracticalContent(editor.getData())}
                 />
+                <label className="word-page-footer">
+                  <span>Footer</span>
+                  <input value={documentFooter} onChange={(event) => setDocumentFooter(event.target.value)} placeholder="Nhập nội dung chân trang" />
+                  {pageNumbering && <b>Trang 1 / {simulatedPageCount}</b>}
+                </label>
               </div>
               <div className="word-statusbar">
-                <span>Trang 1 / 1</span>
+                <span>Trang 1 / {simulatedPageCount}</span>
                 <span>Wordie Simulation</span>
               </div>
             </section>
@@ -1933,46 +2037,83 @@ function TestsPage({
             <span>{blueprints.length} bài test</span>
           </div>
 
-          <div className="test-catalog">
-            {blueprints.map((blueprint) => {
-              const bestAttempt = getBestAttemptForBlueprint(attemptHistory, blueprint.id);
-              const lastAttempt = getLatestAttemptForBlueprint(attemptHistory, blueprint.id);
-              return (
-                <button key={blueprint.id} className="test-card" onClick={() => startTest(blueprint.id)} disabled={loading}>
-                  <span>{blueprint.totalQuestions === 50 ? "Cuối khóa" : "Học phần"}</span>
-                  <strong>{getBlueprintTitle(blueprint, lessons)}</strong>
-                  <small>{blueprint.totalQuestions} câu · {getTestDurationMinutes(blueprint)} phút</small>
-                  <div className="test-card-meta">
-                    <b>{bestAttempt ? `Cao nhất ${bestAttempt.mosScore}` : "Chưa làm"}</b>
-                    <em>{lastAttempt ? `Lần gần nhất ${lastAttempt.mosScore}` : "Bấm để vào bài"}</em>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+          <section className="test-category">
+            <div className="test-section-label">
+              <div>
+                <strong>Bài thi trắc nghiệm</strong>
+                <small>Luyện kiến thức MOS Word theo học phần và đề cuối khóa.</small>
+              </div>
+              <span>{blueprints.length} bài</span>
+            </div>
+            <div className="test-catalog">
+              {blueprints.map((blueprint) => {
+                const bestAttempt = getBestAttemptForBlueprint(attemptHistory, blueprint.id);
+                const lastAttempt = getLatestAttemptForBlueprint(attemptHistory, blueprint.id);
+                return (
+                  <button key={blueprint.id} className="test-card" onClick={() => startTest(blueprint.id)} disabled={loading}>
+                    <span>{blueprint.totalQuestions === 50 ? "Cuối khóa" : "Học phần"}</span>
+                    <strong>{getBlueprintTitle(blueprint, lessons)}</strong>
+                    <small>{blueprint.totalQuestions} câu · {getTestDurationMinutes(blueprint)} phút</small>
+                    <div className="test-card-meta">
+                      <b>{bestAttempt ? `Cao nhất ${bestAttempt.mosScore}` : "Chưa làm"}</b>
+                      <em>{lastAttempt ? `Lần gần nhất ${lastAttempt.mosScore}` : "Bấm để vào bài"}</em>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
 
-          <div className="test-section-label">
-            <strong>Bài thi mô phỏng thực hành</strong>
-            <span>{practicalTests.length} bài</span>
-          </div>
-          <div className="test-catalog">
-            {practicalTests.map((test) => {
-              const attempts = practicalHistory.filter((item) => item.practicalTestId === test.id);
-              const best = attempts.length ? Math.max(...attempts.map((item) => item.score)) : null;
-              const latest = attempts[0];
-              return (
-                <button key={test.id} className={`test-card practical-test-card ${test.deliveryMode === "office-addin" ? "office-addin-card" : ""}`} onClick={() => startPracticalTest(test.id)} disabled={loading}>
-                  <span>{test.deliveryMode === "office-addin" ? "Office Web Add-in · Cuối khóa" : test.durationMinutes === 90 ? "Thực hành cuối khóa" : "Mô phỏng Word"}</span>
+          <section className="test-category simulation-category">
+            <div className="test-section-label">
+              <div>
+                <strong>Bài thi mô phỏng Word</strong>
+                <small>Thực hành trực tiếp bằng CKEditor và nhận điểm theo từng tiêu chí.</small>
+              </div>
+              <span>{simulationPracticalTests.length} bài</span>
+            </div>
+            <div className="test-catalog">
+              {simulationPracticalTests.map((test) => {
+                const attempts = practicalHistory.filter((item) => item.practicalTestId === test.id);
+                const best = attempts.length ? Math.max(...attempts.map((item) => item.score)) : null;
+                const latest = attempts[0];
+                return (
+                  <button key={test.id} className="test-card practical-test-card" onClick={() => startPracticalTest(test.id)} disabled={loading}>
+                    <span>{test.durationMinutes === 90 ? "Thực hành cuối khóa" : "Mô phỏng Word"}</span>
+                    <strong>{test.title}</strong>
+                    <small>{test.tasks.length} câu · {test.tasks.flatMap((task) => task.checks).length} tiêu chí · {test.durationMinutes} phút</small>
+                    <div className="test-card-meta">
+                      <b>{best !== null ? `Cao nhất ${best}` : "Chưa làm"}</b>
+                      <em>{latest ? `Lần gần nhất ${latest.score}` : "Bấm để vào phòng thi"}</em>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="test-category office-category">
+            <div className="test-section-label">
+              <div>
+                <strong>Office Word Add-in</strong>
+                <small>Bài thi thao tác trên Microsoft Word thật, hiện đang tiếp tục phát triển.</small>
+              </div>
+              <span>{officeAddinTests.length} bài đang khóa</span>
+            </div>
+            <div className="test-catalog">
+              {officeAddinTests.map((test) => (
+                <button key={test.id} className="test-card practical-test-card office-addin-card in-development" disabled>
+                  <span>Office Web Add-in · Đang phát triển</span>
                   <strong>{test.title}</strong>
                   <small>{test.tasks.length} câu · {test.tasks.flatMap((task) => task.checks).length} tiêu chí · {test.durationMinutes} phút</small>
                   <div className="test-card-meta">
-                    <b>{best !== null ? `Cao nhất ${best}` : "Chưa làm"}</b>
-                    <em>{latest ? `Lần gần nhất ${latest.score}` : "Bấm để vào phòng thi"}</em>
+                    <b>Chưa mở</b>
+                    <em>Tạm khóa để tiếp tục phát triển</em>
                   </div>
                 </button>
-              );
-            })}
-          </div>
+              ))}
+            </div>
+          </section>
 
           <section className="test-history">
             <div className="section-heading">
@@ -3081,4 +3222,31 @@ function makeOptions(answer: string, nearby: string[], fallback: string[], seed:
 function rotate<T>(items: T[], seed: number) {
   const offset = seed % items.length;
   return [...items.slice(offset), ...items.slice(0, offset)];
+}
+
+function composeSimulationDocument(
+  content: string,
+  header: string,
+  footer: string,
+  pageNumbering: boolean,
+  lineSpacing: string,
+  firstLineIndent: boolean,
+  paragraphSpacingZero: boolean,
+) {
+  return [
+    `<article class="wordie-simulation-document" data-page-numbering="${pageNumbering}" data-line-spacing="${lineSpacing}" data-first-line-indent="${firstLineIndent ? "1.27" : "0"}" data-spacing-zero="${paragraphSpacingZero}">`,
+    `<header class="wordie-document-header">${escapeHtml(header)}</header>`,
+    content,
+    `<footer class="wordie-document-footer">${escapeHtml(footer)}</footer>`,
+    "</article>",
+  ].join("");
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }

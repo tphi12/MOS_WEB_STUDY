@@ -39,7 +39,7 @@ Snapshot được gửi tới endpoint nộp bài thực hành hiện có. Các 
 Website production không thể trực tiếp chạy `WINWORD.EXE` trên máy học viên. Wordie dùng Office URI Scheme để yêu cầu Windows mở một tài liệu Word đã nhúng Add-in:
 
 ```text
-ms-word:ofe|u|https://your-vercel-domain.vercel.app/wordie-exam.docx
+ms-word:nft|u|https://your-vercel-domain.vercel.app/wordie-exam.docx
 ```
 
 Thiết lập biến môi trường trên Vercel:
@@ -55,6 +55,8 @@ Với máy thuộc trường/tổ chức, nên triển khai Add-in bằng Micros
 
 Trình duyệt có thể hiện hộp thoại yêu cầu người dùng xác nhận mở Microsoft Word. Đây là giới hạn bảo mật của trình duyệt và không thể bỏ qua từ website.
 
+Wordie dùng lệnh `nft` (New Document From Template) để tạo một tài liệu mới có thể chỉnh sửa từ file mẫu trên Vercel. Không dùng `ofe`, vì file tĩnh trên Vercel không hỗ trợ lưu ngược và có thể bị Word mở chỉ đọc.
+
 Tài liệu `public/wordie-exam.docx` được tạo bởi `office-addin-debugging` và tham chiếu Add-in ID `7192b75f-6ce0-4d93-a38d-91731c0a1c4f`. Manifest cài trên máy học viên phải dùng đúng ID này và trỏ các URL Task Pane sang domain Vercel production.
 
 Tạo manifest production sau khi biết domain Vercel:
@@ -64,5 +66,23 @@ $env:WORDIE_WEB_URL="https://your-vercel-domain.vercel.app"
 npm run office:manifest:production
 npm exec -- office-addin-manifest validate wordie-office-addin.production.xml
 ```
+
+### Bộ cài Windows không cần Node.js
+
+Sau khi tạo và kiểm tra manifest production, tạo gói cài đặt dành cho học viên:
+
+```powershell
+npm run office:installer:windows
+```
+
+Gửi file `release/Wordie-MOS-Installer-Windows.zip` cho học viên. Học viên giải nén,
+nhấp đúp `Cai-Wordie.cmd`, sau đó đóng và mở lại Word. Bộ cài chép manifest vào
+`%LOCALAPPDATA%\WordieMOS\OfficeAddin` và đăng ký Add-in cho tài khoản Windows hiện tại;
+học viên không cần cài Node.js hoặc giữ thư mục dự án.
+
+Windows không cho phép website âm thầm sửa Registry. Để có trải nghiệm tải xuống và nhấn
+một file duy nhất, cần đóng gói các script này thành bộ cài `.exe` hoặc `.msix` có ký số.
+Nếu toàn bộ học viên dùng tài khoản Microsoft 365 của cùng tổ chức, Centralized Deployment
+qua Microsoft 365 Admin Center là phương án tốt nhất vì học viên không cần tự cài.
 
 Sau đó triển khai `wordie-office-addin.production.xml` bằng Microsoft 365 Centralized Deployment hoặc sideload một lần trên máy học viên.
