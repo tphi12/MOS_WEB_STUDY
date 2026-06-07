@@ -257,6 +257,7 @@ type AssistantContext = {
 };
 
 const API_URL = import.meta.env.VITE_API_URL ?? (window.location.protocol === "https:" ? "" : "http://localhost:4000");
+const WORD_EXAM_DOCUMENT_URL = import.meta.env.VITE_WORD_EXAM_DOCUMENT_URL;
 const AUTH_STORAGE_KEY = "mos-word-auth-user";
 
 const shortcutCategories: Array<Shortcut["category"] | "Tất cả"> = [
@@ -1617,13 +1618,18 @@ function TestsPage({
           await loadExamIntoWord(data.test.initialContent);
           setOfficeStatus("Đề đã được nạp vào Word.");
         } else {
-          const launchResponse = await fetch(`${API_URL}/api/local-office/launch`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ attemptId: data.attempt.id }),
-          });
-          if (!launchResponse.ok) throw new Error("Không thể mở Microsoft Word từ local launcher");
-          setOfficeStatus("Microsoft Word đang được mở. Đăng nhập trong Task Pane nếu được yêu cầu.");
+          if (WORD_EXAM_DOCUMENT_URL) {
+            window.location.href = `ms-word:ofe|u|${WORD_EXAM_DOCUMENT_URL}`;
+            setOfficeStatus("Đang yêu cầu Windows mở Microsoft Word. Hãy xác nhận hộp thoại mở ứng dụng nếu trình duyệt hiển thị.");
+          } else {
+            const launchResponse = await fetch(`${API_URL}/api/local-office/launch`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ attemptId: data.attempt.id }),
+            });
+            if (!launchResponse.ok) throw new Error("Không thể mở Microsoft Word từ local launcher");
+            setOfficeStatus("Microsoft Word đang được mở. Đăng nhập trong Task Pane nếu được yêu cầu.");
+          }
         }
       }
     } catch (startError) {

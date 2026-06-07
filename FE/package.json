@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "office:validate": "office-addin-manifest validate wordie-office-addin.xml",
+    "office:manifest:production": "node scripts/create-production-manifest.mjs",
     "office:start": "office-addin-debugging start wordie-office-addin.xml desktop --app word --no-debug --dev-server-port 5173",
     "office:stop": "office-addin-debugging stop wordie-office-addin.xml desktop"
   },
