@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview --host 0.0.0.0",
+    "office:validate": "office-addin-manifest validate wordie-office-addin.xml",
+    "office:start": "office-addin-debugging start wordie-office-addin.xml desktop --app word --no-debug --dev-server-port 5173",
+    "office:stop": "office-addin-debugging stop wordie-office-addin.xml desktop"
   },
   "dependencies": {
     "@ckeditor/ckeditor5-react": "^11.1.2",
@@ -22,6 +25,14 @@
   "devDependencies": {
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3",
+    "office-addin-debugging": "^6.1.1",
+    "office-addin-dev-certs": "^2.0.9",
+    "office-addin-manifest": "^2.1.5",
     "playwright": "^1.60.0"
+  },
+  "overrides": {
+    "@microsoft/app-manifest": {
+      "strip-bom": "3.0.0"
+    }
   }
 }

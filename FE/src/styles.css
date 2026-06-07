@@ -2359,6 +2359,11 @@ h3 {
   border-color: #d5e9c9;
 }
 
+.office-addin-card {
+  background: linear-gradient(145deg, #f3f8ff, #fff);
+  border-color: #8fb5ec;
+}
+
 .test-card:disabled {
   cursor: wait;
   opacity: 0.72;
@@ -2587,6 +2592,79 @@ h3 {
   background: #eef2f7;
   border: 1px solid #ccd6e5;
   border-radius: 16px;
+}
+
+.office-addin-workspace {
+  display: grid;
+  gap: 18px;
+  min-height: 540px;
+  padding: 28px;
+  align-content: center;
+  color: #17212b;
+  background: linear-gradient(145deg, #f7faff, #e9f2ff);
+  border: 1px solid #b8ceef;
+  border-radius: 16px;
+}
+
+.office-addin-mark {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.office-addin-mark svg {
+  color: #185abd;
+}
+
+.office-addin-mark span {
+  color: #185abd;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.office-addin-mark h2 {
+  margin: 4px 0 0;
+}
+
+.office-addin-workspace p,
+.office-addin-workspace small {
+  margin: 0;
+  color: #435267;
+  line-height: 1.65;
+}
+
+.office-connection {
+  display: grid;
+  gap: 5px;
+  padding: 14px;
+  color: #7a2e22;
+  background: #fff4f1;
+  border: 1px solid #efc2ba;
+  border-radius: 12px;
+}
+
+.office-connection.connected {
+  color: #236b38;
+  background: #effaf2;
+  border-color: #b9dfc2;
+}
+
+.office-connection span {
+  color: inherit;
+  font-size: 13px;
+}
+
+.office-addin-workspace button {
+  min-height: 44px;
+  width: fit-content;
+  padding: 0 18px;
+  color: #fff;
+  background: #185abd;
+  border: 0;
+  border-radius: 10px;
+  font-weight: 900;
 }
 
 .word-titlebar,

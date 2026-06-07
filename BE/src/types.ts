@@ -108,13 +108,48 @@ export type PracticalCheckType =
   | "heading-text"
   | "bold-text"
   | "list-contains"
-  | "table-contains";
+  | "table-contains"
+  | "office-body-contains"
+  | "office-body-not-contains"
+  | "office-bold-text"
+  | "office-heading-text"
+  | "office-table-contains"
+  | "office-font-name"
+  | "office-font-size"
+  | "office-line-spacing"
+  | "office-alignment"
+  | "office-first-line-indent"
+  | "office-spacing-zero"
+  | "office-no-leading-spaces"
+  | "office-image-count"
+  | "office-ooxml-contains"
+  | "office-alignment-text";
+
+export type OfficeDocumentSnapshot = {
+  bodyText: string;
+  paragraphs: Array<{
+    text: string;
+    style: string;
+    bold: boolean | null;
+    fontName?: string;
+    fontSize?: number;
+    alignment?: string;
+    lineSpacing?: number;
+    firstLineIndent?: number;
+    spaceBefore?: number;
+    spaceAfter?: number;
+  }>;
+  tables: string[];
+  inlinePictureCount?: number;
+  ooxml?: string;
+};
 
 export type PracticalTest = {
   id: string;
   title: string;
   description: string;
   lessonId?: string;
+  deliveryMode?: "simulation" | "office-addin";
   durationMinutes: number;
   initialContent: string;
   tasks: Array<{
@@ -138,6 +173,7 @@ export type PracticalAttempt = {
   startedAt: string;
   submittedAt?: string;
   content: string;
+  officeSnapshot?: OfficeDocumentSnapshot;
   score: number;
   checkResults: Array<{
     checkId: string;
